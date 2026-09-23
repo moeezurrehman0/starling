@@ -7,12 +7,12 @@ sequenceDiagram
     participant W as web
     participant G as gateway
     participant T as tweet-service
-    participant DB as PostgreSQL
+    participant D as DynamoDB
     participant S3 as S3
-    participant Q as Event transport
+    participant ST as DynamoDB Streams
     participant F as fanout-worker
-    participant US as user-service
-    participant R as Redis
+    participant RC as redis-celeb
+    participant PG as PostgreSQL (search)
 
     Note over U,S3: Media is uploaded directly — it never transits a pod
 
@@ -25,7 +25,7 @@ sequenceDiagram
     W-->>U: presigned URL
     U->>S3: PUT image bytes (direct)
 
-    Note over U,DB: The write path — tweet and event commit atomically
+    Note over U,D: The write path — one transaction, and that transaction is the event
 
     U->>W: submit
     W->>G: POST /api/v1/tweets { body, objectKey, Idempotency-Key }
@@ -33,31 +33,37 @@ sequenceDiagram
     G->>T: forward request
 
     rect rgb(235, 244, 255)
-        Note over T,DB: single database transaction
-        T->>DB: INSERT INTO tweets
-        T->>DB: INSERT INTO outbox (tweet.created)
-        DB-->>T: COMMIT
+        Note over T,D: single TransactWriteItems
+        T->>D: Put idempotency (attribute_not_exists)
+        T->>D: Put tweets item
+        T->>D: Update users ADD tweetCount 1
+        D-->>T: committed
     end
 
     T-->>G: 201 Created
     G-->>W: 201 Created
     W-->>U: tweet appears optimistically
 
-    Note over Q,R: Asynchronous fan-out — the user is no longer waiting
+    Note over ST,PG: Asynchronous — the user is no longer waiting
 
-    T-)Q: publish tweet.created
-    Q-)F: deliver event
-    F->>US: GET /internal/users/{authorId}/followers
-    US-->>F: follower IDs + author follower_count
+    D-)ST: change record (NEW_AND_OLD_IMAGES)
 
-    alt author has < 10,000 followers  (fan-out on write)
-        loop for each follower
-            F->>R: LPUSH timeline:{follower} tweetId
-            F->>R: LTRIM timeline:{follower} 0 799
+    par fan-out consumer
+        ST-)F: GetRecords
+        F->>D: GetItem users (followerCount)
+        alt author has < 10,000 followers  (fan-out on write)
+            loop paged over follows.gsi_followers
+                F->>D: BatchWriteItem timelines (25 per call)
+            end
+        else author is a celebrity  (fan-out on read)
+            F->>RC: SADD celebrities, LPUSH celeb:tweets
+            Note right of F: no per-follower writes —<br/>timeline-service merges<br/>these tweets at read time
         end
-    else author is a celebrity  (fan-out on read)
-        F->>R: SADD celebrities {authorId}
-        Note right of F: no per-follower writes —<br/>timeline-service merges<br/>these tweets at read time
+        F->>D: checkpoint shard position
+    and search indexer
+        ST-)T: GetRecords
+        T->>PG: upsert tweet_search + hashtags
+        T->>D: checkpoint shard position
     end
 
-    Note over F,Q: On failure the message is retried 3 times,<br/>then moved to a DLQ and an alert fires
+    Note over F,ST: Failure is retried 3 times, then written to the deadletter<br/>table so the shard can advance. Stream retention is 24 hours —<br/>a consumer down longer than that loses records permanently.

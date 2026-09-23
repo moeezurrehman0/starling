@@ -1,7 +1,19 @@
 # ADR-0004 — Shared PostgreSQL instance, one schema per service
 
-- **Status:** Accepted
+- **Status:** **Superseded** by [ADR-0011](0011-dynamodb-operational-datastore.md)
 - **Date:** 2026-09-23
+- **Superseded:** 2026-09-23
+
+> **Why this was superseded.** Two flaws. First, it claimed a write path it did not
+> specify: 500 tweets/s sustained is ~43 million rows/day, which needs time-based
+> partitioning and autovacuum tuning that appear nowhere in this record. Second, and
+> decisively for this project, RDS `db.t3.micro` versus Aurora Serverless v2 is a
+> sandbox-to-production gap that can only ever be *asserted*. DynamoDB is on the
+> KodeKloud allow-list and runs identically in both tiers, which turns that assertion
+> into a demonstration. Note in particular that the "DynamoDB for tweets" alternative
+> below was rejected partly because PostgreSQL full-text search would then need a
+> separate engine — the replacement decision resolves that by keeping PostgreSQL purely
+> as an asynchronously-maintained search index.
 
 ## Context
 

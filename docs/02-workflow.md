@@ -54,7 +54,7 @@ six builds.
 |-------|------|------|
 | Format and lint | Spotless, Checkstyle, SpotBugs, ESLint | blocking |
 | Unit tests | JUnit 5 / vitest | blocking |
-| Integration tests | **Testcontainers** — real PostgreSQL, real Redis | blocking |
+| Integration tests | **Testcontainers** — LocalStack (DynamoDB + Streams + S3), real PostgreSQL, real Redis | blocking |
 | Coverage | JaCoCo → PR comment | blocking below 70% |
 | SAST | CodeQL | blocking on high |
 | Secret scan | gitleaks, full history | blocking |
@@ -74,8 +74,12 @@ information, not a decision — blocking on it teaches the team to bypass the ga
 is worse than not having it.
 
 **Integration tests use Testcontainers, not mocks.** A mocked repository test passes
-against a schema that does not exist. The migration runs in the test, against real
-PostgreSQL, which is also how migrations get exercised before they touch a cluster.
+against a schema that does not exist. Tests run against LocalStack for DynamoDB and its
+streams, and against real PostgreSQL for the search index — which is also how the Flyway
+migrations get exercised before they touch a cluster. Running the stream consumers
+against a real stream matters more than the relational coverage does: shard handling is
+the part of this system most likely to be subtly wrong
+([ADR-0012](adr/0012-dynamodb-streams-event-transport.md)).
 
 The 70% coverage threshold is deliberately modest. It is a floor against untested
 additions, not a target to game.
@@ -128,10 +132,22 @@ timing the recovery.
 
 ### Migrations
 
-Flyway, expand–contract, as a Helm `pre-upgrade` hook Job — never on application startup,
-where replicas would race. Backward compatibility with the preceding release is a hard
-rule, which is what makes a code rollback safe without a database restore. See
-[ADR-0008](adr/0008-expand-contract-migrations.md).
+Two kinds, one discipline.
+
+**PostgreSQL (`search` schema only).** Flyway, expand–contract, as a Helm `pre-upgrade`
+hook Job — never on application startup, where replicas would race.
+
+**DynamoDB.** No schema, but the same hazard: during a canary two versions of a service
+read and write the same items. New attributes are additive, readers tolerate absence,
+removals happen two releases later, and backfills are separate idempotent resumable jobs
+rather than deployment hooks. A partition-key change is not a migration at all — it is a
+new table and a cutover.
+
+Backward compatibility with the preceding release is a hard rule in both cases, which is
+what makes a code rollback safe without a data restore. See
+[ADR-0008](adr/0008-expand-contract-migrations.md), which is honest about how much
+smaller the relational half of this story became after
+[ADR-0011](adr/0011-dynamodb-operational-datastore.md).
 
 ### Rollback
 
@@ -185,8 +201,9 @@ signals say it is healthy.
 - **Metrics** — Prometheus scrapes Micrometer; Grafana dashboards per service; SLO
   burn-rate alerts. The same query that drives the Grafana panel drives the canary's
   automatic abort, so the dashboard and the release gate cannot disagree.
-- **Traces** — OpenTelemetry auto-instrumentation → Tempo, with trace IDs propagated
-  through the outbox so an asynchronous fan-out links back to the originating request.
+- **Traces** — OpenTelemetry auto-instrumentation → Tempo. The originating trace ID is
+  written as an attribute on the DynamoDB item, so the stream record carries it and an
+  asynchronous fan-out links back to the request that caused it.
 - **Logs** — structured JSON with the trace ID in every line. Loki on Tier L; Fluent Bit
   → CloudWatch in Tier P. Tier S has no log aggregation: it does not fit in 9.6 GiB
   alongside Tempo, which is gap-register row 15.

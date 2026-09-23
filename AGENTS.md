@@ -57,8 +57,18 @@ For anything in the second list, print the exact command and stop. A human runs 
   compile; fix the something.
 - **Conventional Commits.** The PR title is linted. `feat:`, `fix:`, `chore:`,
   `docs:`, `refactor:`, `test:`, `ci:`, `build:`, with `!` for breaking.
-- **Migrations are expand–contract.** Never write a destructive migration in the same
-  release as its replacement. See [ADR-0008](docs/adr/0008-expand-contract-migrations.md).
+- **Migrations are expand–contract**, for PostgreSQL *and* for DynamoDB attributes. Never
+  write a destructive change in the same release as its replacement. See
+  [ADR-0008](docs/adr/0008-expand-contract-migrations.md).
+- **DynamoDB is the operational store, PostgreSQL is a search index only.** Nothing
+  authoritative may be written to PostgreSQL. A GSI does not enforce uniqueness — use
+  `TransactWriteItems` with `attribute_not_exists`. Counters are `ADD`, never
+  read-modify-write. See [ADR-0011](docs/adr/0011-dynamodb-operational-datastore.md).
+- **AWS SDK v2 only.** The `com.amazonaws` group is SDK v1, end of support December 2025,
+  and must not appear on any classpath — including transitively via the KCL DynamoDB
+  Streams adapter. See [ADR-0012](docs/adr/0012-dynamodb-streams-event-transport.md).
+- **Stream consumers are idempotent.** Delivery is at-least-once and a crash between
+  processing and checkpointing replays the batch.
 - **No tier checks in domain code.** Differences live in Helm values and Terraform
   variables. If application code needs to know which tier it is in, the design is wrong.
 - **Every architectural decision gets an ADR**, including the ones that turned out badly.

@@ -79,7 +79,7 @@ enforced. No business logic yet.
 | Build | Gradle 9.7.1, Kotlin DSL, multi-project |
 | Frontend | Next.js 15 + TypeScript + Tailwind |
 | Images | jlink custom runtime + CDS → `distroless/base-nossl`, non-root |
-| Data | PostgreSQL (schema-per-service), Redis, S3 |
+| Data | DynamoDB (operational) + PostgreSQL (search index), two Redis caches, S3 |
 | Runtime | Kubernetes / EKS, Helm + Kustomize |
 | Delivery | GitHub Actions → ECR → ArgoCD → Argo Rollouts |
 | IaC | Terraform, shared modules, two env roots |

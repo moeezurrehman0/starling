@@ -8,11 +8,15 @@ spotless = "8.10.2"
 spotbugs = "6.5.11"
 jacoco = "0.8.13"
 archunit = "1.4.1"
+# AWS SDK v2. The v1 SDK (group com.amazonaws) reached end of support in Dec 2025
+# and must not be introduced — see ADR-0012 on why the KCL streams adapter is rejected.
+awsSdk = "2.46.7"
 
 [libraries]
 # --- Platforms -------------------------------------------------------------
 # Boot 4.1.1 already manages Testcontainers 2.0.5, so no separate BOM is needed.
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+aws-sdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awsSdk" }
 
 # --- Spring Boot 4 modular starters ----------------------------------------
 # Boot 4 removed the umbrella starters: there is no spring-boot-starter-web.
@@ -34,7 +38,15 @@ micrometer-prometheus = { module = "io.micrometer:micrometer-registry-prometheus
 micrometer-tracing-bridge-otel = { module = "io.micrometer:micrometer-tracing-bridge-otel" }
 otel-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp" }
 
-# --- Persistence -----------------------------------------------------------
+# --- Persistence: DynamoDB (operational store, ADR-0011) -------------------
+aws-dynamodb = { module = "software.amazon.awssdk:dynamodb" }
+aws-dynamodb-enhanced = { module = "software.amazon.awssdk:dynamodb-enhanced" }
+# DynamoDbStreamsClient ships inside the dynamodb artifact. The consumer is hand-rolled
+# on DescribeStream/GetShardIterator/GetRecords rather than using KCL — see ADR-0012.
+aws-s3 = { module = "software.amazon.awssdk:s3" }
+aws-apache-client = { module = "software.amazon.awssdk:apache-client" }
+
+# --- Persistence: PostgreSQL (search index only, ADR-0007) -----------------
 postgresql = { module = "org.postgresql:postgresql" }
 flyway-core = { module = "org.flywaydb:flyway-core" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
@@ -58,9 +70,10 @@ plugin-spotbugs = { module = "com.github.spotbugs:com.github.spotbugs.gradle.plu
 
 [bundles]
 observability = ["micrometer-prometheus", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
-persistence = ["boot-data-jpa", "postgresql", "flyway-core", "flyway-postgresql"]
+dynamodb = ["aws-dynamodb", "aws-dynamodb-enhanced", "aws-apache-client"]
+search-persistence = ["boot-data-jpa", "postgresql", "flyway-core", "flyway-postgresql"]
 testing = ["boot-test", "assertj", "archunit"]
-testcontainers = ["boot-testcontainers", "testcontainers-junit", "testcontainers-postgresql"]
+testcontainers = ["boot-testcontainers", "testcontainers-junit", "testcontainers-postgresql", "testcontainers-localstack"]
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

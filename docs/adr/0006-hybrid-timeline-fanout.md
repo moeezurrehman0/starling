@@ -1,7 +1,17 @@
 # ADR-0006 — Hybrid timeline fan-out
 
-- **Status:** Accepted
+- **Status:** Accepted — **amended 2026-09-23**
 - **Date:** 2026-09-23
+
+> **Amendment.** The decision is unchanged: choose the fan-out strategy per author, on
+> follower count. The *mechanism* changed when the datastore moved to DynamoDB
+> ([ADR-0011](0011-dynamodb-operational-datastore.md)) and the cache tier split
+> ([ADR-0013](0013-split-celebrity-normal-caches.md)). Fan-out now writes durable items
+> into a `timelines` table rather than pushing onto a Redis list, and the celebrity read
+> path is served from a dedicated cache in front of a GSI rather than from a SQL range
+> scan. The pseudocode and consequences below reflect the amended mechanism; the
+> alternatives section is unchanged because none of the rejections depended on the
+> storage engine.
 
 ## Context
 
@@ -24,27 +34,37 @@ Choose the strategy per author, at write time, on follower count.
 ```
 CELEBRITY_THRESHOLD = 10_000
 
-write path (fanout-worker):
-    if author.follower_count < CELEBRITY_THRESHOLD:
-        for each follower:  LPUSH timeline:{follower} tweetId; LTRIM 0 799
+write path (fanout-worker, consuming the tweets stream):
+    if author.followerCount < CELEBRITY_THRESHOLD:
+        for each page of follows.gsi_followers where followeeId = authorId:
+            BatchWriteItem timelines            # 25 items per call
+                { userId: follower, tweetId, authorId, expiresAt: now + 7d }
     else:
-        SADD celebrities {authorId}      # no per-follower writes at all
+        SADD celebrities {authorId}             # redis-celeb, no per-follower writes
+        LPUSH celeb:tweets:{authorId} tweetId   # redis-celeb, LTRIM 0 199
 
 read path (timeline-service):
-    cached = LRANGE timeline:{userId} 0 N              # from normal authors
-    celebs = celebrities ∩ following(userId)           # small set
-    recent = SELECT id FROM tweets
-             WHERE author_id = ANY(celebs)
-               AND created_at > now() - interval '2 days'
-             ORDER BY id DESC LIMIT N
+    cached = GET tl:{userId}:p0                 # redis-main, 60 s TTL
+    if miss:
+        cached = Query timelines
+                   KeyCondition  userId = :u
+                   ScanIndexForward = false     # UUIDv7 ⇒ newest first
+                   Limit N
+    celebs = celebrities ∩ (Query follows where followerId = :u)
+    recent = LRANGE celeb:tweets:{c} 0 N for each c in celebs     # redis-celeb
+             # miss falls through to Query tweets.gsi_author
     return merge_by_id_desc(cached, recent)[0:N]
 ```
 
 The merge sorts by UUIDv7, which is chronologically ordered (ADR-0005), so no timestamp
 hydration is needed to order the two lists.
 
-`user_stats.follower_count` is a denormalised counter, so the threshold check is a
-primary-key lookup rather than a `COUNT(*)` on the hot write path.
+`users.followerCount` is an atomically incremented DynamoDB counter, so the threshold
+check is a single-item `GetItem` rather than an aggregate on the hot write path.
+
+The `timelines` table uses a 7-day TTL rather than the previous 800-entry `LTRIM`. Depth
+is bounded by the query `Limit`, not by discarding data, so deep scroll is served by the
+same `Query` with a `LastEvaluatedKey` instead of falling through to a slower path.
 
 ## Alternatives considered
 
@@ -59,9 +79,13 @@ because one celebrity post generates millions of Redis writes, saturating the wo
 the queue and delaying fan-out for every other user on the platform. The tail latency of
 ordinary users becomes hostage to celebrity posting.
 
-**Fan-out on write into PostgreSQL rather than Redis.** Durable, and survives cache loss.
-Rejected: 100,000 row inserts per second into a `timeline_entries` table is far beyond a
-`db.t3.micro`, and the data is trivially rebuildable, so durability buys nothing.
+**Fan-out on write into a durable table rather than Redis.** Originally rejected on the
+grounds that 100,000 row inserts/s is far beyond a `db.t3.micro` and the data is trivially
+rebuildable, so durability buys nothing. **This rejection no longer holds and the
+amendment reverses it**: DynamoDB absorbs that write rate without capacity planning, and
+durability turned out to buy something real — it removes the sandbox compromise where the
+only copy of every materialised timeline lived in an `emptyDir` Redis. What it costs is
+money, quantified in [ADR-0011](0011-dynamodb-operational-datastore.md).
 
 **Threshold at 1,000 instead of 10,000.** More accounts treated as celebrities, so fewer
 fan-out writes but a larger read-time merge for most users. 10,000 was chosen because it
@@ -75,23 +99,26 @@ Phase 11 measures it.
 
 - The pathological write amplification never occurs, regardless of how large an account
   grows.
-- The overwhelming majority of reads are a single `LRANGE` from Redis.
-- The read-time query for celebrity tweets is served by the existing
-  `(author_id, created_at desc)` index over a small author set and a 2-day window.
-- Redis holds only derived data, so an `emptyDir` Redis in the sandbox is acceptable —
-  losing it degrades latency and nothing else.
+- The overwhelming majority of reads are a single cache read, or one `Query` against a
+  partition key.
+- The read-time query for celebrity tweets is served from `redis-celeb`, falling through
+  to `tweets.gsi_author` over a small author set
+  ([ADR-0013](0013-split-celebrity-normal-caches.md)).
+- Materialised timelines are durable, so cache loss now costs latency and DynamoDB read
+  spend — not the timelines themselves.
 
 **Negative**
 
 - Two code paths, both of which must be tested, including the boundary where an account
   crosses the threshold. An account that crosses upward leaves stale entries in follower
-  timelines, which age out of the 800-entry window naturally; an account crossing
-  downward has a gap until it starts being fanned out. Both are accepted and documented.
+  timelines, which age out of the 7-day TTL naturally; an account crossing downward has a
+  gap until it starts being fanned out. Both are accepted and documented.
 - Eventual consistency: a follower may see a tweet up to a few seconds late while the
   worker drains. Budgeted by the 5-second p99 freshness NFR and measured as fan-out lag.
 - The merge adds CPU and a second data source to every read.
-- The 800-entry `LTRIM` cap means deep scrolling falls through to PostgreSQL. Acceptable:
-  almost nobody scrolls past 800 tweets, and the fallback is correct, only slower.
+- Fan-out is now **metered**. Every follower write is a DynamoDB write request, so the
+  200-follower average translates directly into a monthly bill in a way that `LPUSH`
+  never did. The threshold is now a cost lever as well as a latency one.
 - The threshold is a tuning parameter with no correct value known in advance.
 
 **Neutral**

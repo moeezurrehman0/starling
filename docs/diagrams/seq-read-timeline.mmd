@@ -1,33 +1,44 @@
 ---
-title: Reading a home timeline — the hybrid merge
+title: Reading a home timeline — the hybrid merge across two caches
 ---
 sequenceDiagram
     autonumber
     actor U as User (browser)
     participant G as gateway
     participant TL as timeline-service
-    participant R as Redis
-    participant DB as PostgreSQL
+    participant RM as redis-main
+    participant RC as redis-celeb
+    participant D as DynamoDB
     participant T as tweet-service
 
     U->>G: GET /api/v1/timeline?limit=50
     G->>G: validate JWT, check rate limit
     G->>TL: forward (subject = userId)
 
-    par precomputed portion
-        TL->>R: LRANGE timeline:{userId} 0 49
-        R-->>TL: tweet IDs from non-celebrity authors
+    par materialised portion
+        TL->>RM: GET tl:{userId}:p0
+        alt cache hit
+            RM-->>TL: tweet IDs from non-celebrity authors
+        else cache miss
+            TL->>D: Query timelines, userId = :u,<br/>ScanIndexForward=false, Limit 50
+            D-->>TL: tweet IDs
+            TL->>RM: SET tl:{userId}:p0, TTL 60s
+        end
     and celebrity portion
-        TL->>R: SMEMBERS celebrities ∩ following:{userId}
-        R-->>TL: celebrity author IDs (small set)
-        TL->>DB: SELECT id FROM tweets<br/>WHERE author_id IN (...)<br/>AND created_at > now() - interval '2 days'<br/>ORDER BY id DESC LIMIT 50
-        DB-->>TL: recent celebrity tweet IDs
+        TL->>RC: SMEMBERS celebrities
+        TL->>D: Query follows where followerId = :u
+        TL->>TL: intersect to a small celebrity set
+        TL->>RC: LRANGE celeb:tweets:{c} 0 49 for each c
+        alt cache miss on a celebrity
+            TL->>D: Query tweets.gsi_author,<br/>authorId = :c, Limit 50
+            Note right of TL: single-flight lock — N concurrent<br/>misses cause one DynamoDB read,<br/>protecting a hot partition key
+        end
     end
 
     TL->>TL: merge both lists by UUIDv7 order, take 50
     TL->>T: GET /internal/tweets?ids=...  (hydrate)
-    T-->>TL: tweet bodies, media keys, stats
+    T-->>TL: tweet bodies, media keys, counters
     TL-->>G: timeline page
     G-->>U: 200 OK
 
-    Note over TL,DB: If Redis is unavailable the precomputed branch is skipped<br/>and the whole timeline is rebuilt from PostgreSQL:<br/>slower, but correct. Nothing durable lives in Redis.
+    Note over TL,D: Losing either cache costs latency and DynamoDB spend,<br/>never data — the timelines table is durable.<br/>Uncached, this path would cost roughly $1,000/day at target load,<br/>which is why cache hit rate is a budget metric, not just a latency one.

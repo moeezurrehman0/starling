@@ -1,7 +1,40 @@
 # ADR-0008 — Expand–contract database migrations
 
-- **Status:** Accepted
+- **Status:** Accepted — **amended 2026-09-23**
 - **Date:** 2026-09-23
+
+> **Amendment.** The discipline is unchanged. Its *scope* shrank considerably when the
+> operational data moved to DynamoDB ([ADR-0011](0011-dynamodb-operational-datastore.md)),
+> and this should be stated plainly rather than quietly: expand–contract was one of the
+> stronger delivery artefacts in this repository, and the DynamoDB decision cost most of
+> it. Flyway now manages one schema — `search` — instead of every table in the system.
+>
+> What replaces it is a **second, weaker form of the same rule**. DynamoDB has no schema,
+> but it does have an implicit contract between the attributes a running service writes
+> and the attributes another running version reads. Two versions of a service still run
+> simultaneously during a canary, so the underlying hazard is identical. The rules below
+> therefore apply to DynamoDB items as well, with these substitutions:
+>
+> | Relational | DynamoDB equivalent |
+> |---|---|
+> | add a nullable column | write a new attribute; readers must tolerate its absence |
+> | rename a column | write both attributes, backfill, stop writing the old one, remove it |
+> | drop a column | `UpdateItem … REMOVE`, batched, after N+2 |
+> | add an index | create a GSI; it backfills online, but throughput must be raised first |
+> | `NOT NULL` constraint | a validation rule in code, enforced only after the backfill completes |
+>
+> The two genuinely new hazards, which have no relational analogue:
+>
+> 1. **Backfills are metered.** Rewriting every item in a table is a write charge and a
+>    throughput spike, so it must be rate-limited, resumable, and run outside peak.
+> 2. **A GSI cannot be added to an existing table without capacity headroom**, and a
+>    partition-key change is not a migration at all — it is a new table plus a dual-write
+>    window plus a cutover. Access patterns must be right the first time, which is the
+>    risk [ADR-0011](0011-dynamodb-operational-datastore.md) records.
+>
+> There is no Helm `pre-upgrade` hook for DynamoDB. Attribute changes ship with the code
+> that writes them; backfills are separate, idempotent, resumable jobs that are safe to
+> run twice and safe to interrupt.
 
 ## Context
 
@@ -34,7 +67,9 @@ Three rules are absolute:
    the service's own database role. Never on application startup — five replicas racing
    to migrate is a corruption bug waiting to happen.
 
-Flyway is the tool; each service owns its own migration history in its own schema.
+Flyway is the tool for the relational side. Since
+[ADR-0011](0011-dynamodb-operational-datastore.md) that is the `search` schema alone,
+owned by `tweet-service`.
 
 ## Alternatives considered
 

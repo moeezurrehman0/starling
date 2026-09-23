@@ -14,6 +14,13 @@ dependencies {
     testImplementation(platform(libs.findLibrary("spring-boot-bom").get()))
     "integrationTestImplementation"(platform(libs.findLibrary("spring-boot-bom").get()))
 
+    // AWS SDK v2 BOM. DynamoDB is the operational datastore (ADR-0011) and its
+    // stream is the event transport (ADR-0012), so every service resolves AWS
+    // artefact versions from one place.
+    implementation(platform(libs.findLibrary("aws-sdk-bom").get()))
+    testImplementation(platform(libs.findLibrary("aws-sdk-bom").get()))
+    "integrationTestImplementation"(platform(libs.findLibrary("aws-sdk-bom").get()))
+
     implementation(libs.findLibrary("boot-starter").get())
     implementation(libs.findLibrary("boot-actuator").get())
     implementation(libs.findLibrary("boot-validation").get())

@@ -8,14 +8,16 @@ graph TB
         web["<b>web</b><br/><i>[Next.js 15]</i><br/>Server-rendered UI"]
         gw["<b>gateway</b><br/><i>[Spring Boot 4]</i><br/>Routing, JWT validation,<br/>rate limiting, API versioning"]
         usr["<b>user-service</b><br/><i>[Spring Boot 4]</i><br/>Accounts, auth, profiles,<br/>follow graph"]
-        twt["<b>tweet-service</b><br/><i>[Spring Boot 4]</i><br/>Tweets, likes, replies,<br/>media metadata, search"]
-        tl["<b>timeline-service</b><br/><i>[Spring Boot 4]</i><br/>Home timeline reads,<br/>cache management"]
-        fan["<b>fanout-worker</b><br/><i>[Spring Boot 4]</i><br/>Consumes tweet events,<br/>writes follower timelines"]
+        twt["<b>tweet-service</b><br/><i>[Spring Boot 4]</i><br/>Tweets, likes, replies,<br/>media metadata,<br/>search API + indexer"]
+        tl["<b>timeline-service</b><br/><i>[Spring Boot 4]</i><br/>Home timeline reads,<br/>hybrid merge, cache routing"]
+        fan["<b>fanout-worker</b><br/><i>[Spring Boot 4]</i><br/>Consumes the tweets stream,<br/>materialises timelines"]
+        rcel[("<b>redis-celeb</b><br/><i>[in-cluster / ElastiCache]</i><br/>celebrity profiles + tweets<br/>noeviction, 256Mi")]
+        rmain[("<b>redis-main</b><br/><i>[in-cluster / ElastiCache]</i><br/>timeline pages, profiles,<br/>rate limits, allkeys-lru")]
     end
 
-    pg[("<b>PostgreSQL</b><br/><i>[RDS / Aurora]</i><br/>schemas: users, tweets<br/>+ transactional outbox")]
-    redis[("<b>Redis</b><br/><i>[ElastiCache]</i><br/>timelines, rate limits,<br/>celebrity set")]
-    queue{{"<b>Event transport</b><br/><i>[SNS to SQS, or outbox poll]</i><br/>tweet.created"}}
+    ddb[("<b>DynamoDB</b><br/>users, handles, tweets, follows,<br/>timelines, likes, idempotency,<br/>stream_checkpoints")]
+    stream{{"<b>DynamoDB Streams</b><br/><i>[tweets table]</i><br/>NEW_AND_OLD_IMAGES"}}
+    pg[("<b>PostgreSQL</b><br/><i>[RDS / Aurora]</i><br/>schema: search<br/>derived data only")]
     s3[("<b>S3</b><br/>tweet media")]
 
     user -->|HTTPS| web
@@ -25,23 +27,28 @@ graph TB
     gw -->|REST| usr
     gw -->|REST| twt
     gw -->|REST| tl
-    gw -->|"token buckets"| redis
+    gw -->|"token buckets"| rmain
 
-    usr --> pg
-    twt --> pg
+    usr -->|"users, handles, follows"| ddb
+    twt -->|"tweets, likes<br/>TransactWriteItems"| ddb
     twt -->|"presigned URLs"| s3
-    twt -->|"publishes tweet.created<br/>(same txn as the write)"| queue
-    queue -->|consumes| fan
+    twt -->|"full-text queries"| pg
 
-    fan -->|"who follows the author?"| usr
-    fan -->|"LPUSH + LTRIM<br/>timeline:{follower}"| redis
+    ddb -->|"change records"| stream
+    stream -->|"consumer 1"| fan
+    stream -->|"consumer 2 — search indexer"| twt
+    twt -.->|"upsert index"| pg
 
-    tl -->|"LRANGE cached timeline"| redis
-    tl -->|"celebrity tweets<br/>at read time"| pg
+    fan -->|"BatchWriteItem timelines"| ddb
+    fan -->|"celebrity set + recent tweets"| rcel
+
+    tl -->|"cached page"| rmain
+    tl -->|"celebrity tweets"| rcel
+    tl -->|"Query timelines on miss"| ddb
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#1168bd,stroke:#0b4884,color:#fff
     classDef store fill:#438dd5,stroke:#2e6295,color:#fff
     class user person
     class web,gw,usr,twt,tl,fan container
-    class pg,redis,queue,s3 store
+    class ddb,stream,pg,s3,rcel,rmain store

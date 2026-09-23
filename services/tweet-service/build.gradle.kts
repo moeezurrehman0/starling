@@ -13,8 +13,14 @@ dependencies {
     implementation(libs.findLibrary("boot-webmvc").get())
     implementation(libs.findLibrary("boot-restclient").get())
     libs
-        .findBundle("persistence")
+        .findBundle("dynamodb")
         .get()
         .get()
         .forEach { implementation(it) }
+    libs
+        .findBundle("search-persistence")
+        .get()
+        .get()
+        .forEach { implementation(it) }
+    implementation(libs.findLibrary("aws-s3").get())
 }

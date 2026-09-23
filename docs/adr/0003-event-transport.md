@@ -1,7 +1,17 @@
 # ADR-0003 — One `EventPublisher` interface, two adapters
 
-- **Status:** Accepted
+- **Status:** **Superseded** by [ADR-0012](0012-dynamodb-streams-event-transport.md)
 - **Date:** 2026-09-23
+- **Superseded:** 2026-09-23
+
+> **Why this was superseded.** This record solved the dual-write problem with a
+> transactional outbox because the datastore was PostgreSQL. Moving the operational data
+> to DynamoDB ([ADR-0011](0011-dynamodb-operational-datastore.md)) dissolves that problem
+> rather than solving it differently: DynamoDB Streams is already a durable ordered log
+> of committed writes, so no code path can commit a tweet without emitting its event. The
+> outbox table, its poller, its pruning job and the `EventPublisher` abstraction are all
+> removed. The reasoning below is retained because the alternatives it rejected — direct
+> publish, 2PC, Debezium — were rejected for reasons that still hold.
 
 ## Context
 

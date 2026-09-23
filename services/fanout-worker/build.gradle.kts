@@ -2,7 +2,7 @@ plugins {
     id("twitterclone.spring-service-conventions")
 }
 
-description = "Drains the outbox and fans tweets out to follower timelines."
+description = "Consumes the tweets DynamoDB stream and materialises follower timelines."
 
 val libs =
     extensions
@@ -13,7 +13,7 @@ dependencies {
     implementation(libs.findLibrary("boot-restclient").get())
     implementation(libs.findLibrary("boot-data-redis").get())
     libs
-        .findBundle("persistence")
+        .findBundle("dynamodb")
         .get()
         .get()
         .forEach { implementation(it) }

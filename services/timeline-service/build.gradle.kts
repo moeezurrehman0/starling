@@ -2,7 +2,7 @@ plugins {
     id("twitterclone.spring-service-conventions")
 }
 
-description = "Home timeline reads and timeline cache management."
+description = "Home timeline reads, the hybrid merge, and routing across the two caches."
 
 val libs =
     extensions
@@ -14,7 +14,7 @@ dependencies {
     implementation(libs.findLibrary("boot-restclient").get())
     implementation(libs.findLibrary("boot-data-redis").get())
     libs
-        .findBundle("persistence")
+        .findBundle("dynamodb")
         .get()
         .get()
         .forEach { implementation(it) }

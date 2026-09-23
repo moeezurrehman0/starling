@@ -13,7 +13,7 @@ dependencies {
     implementation(libs.findLibrary("boot-webmvc").get())
     implementation(libs.findLibrary("boot-security").get())
     libs
-        .findBundle("persistence")
+        .findBundle("dynamodb")
         .get()
         .get()
         .forEach { implementation(it) }
