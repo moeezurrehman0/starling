@@ -1,0 +1,34 @@
+name: fanout-worker
+port: 8084
+
+image:
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/fanout-worker
+  tag: sha-0000000
+
+# One replica, for the same reason as the indexer: uncoordinated shard ownership.
+# This is the single largest honest weakness of the design at production scale and
+# it is recorded as such rather than hidden behind an HPA that would make it worse.
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+service:
+  enabled: false
+
+serviceAccount:
+  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-fanout-worker
+
+networkPolicy:
+  allowFrom: []
+  allowTo: []
+
+env:
+  AWS_REGION: eu-central-1
+  DYNAMODB_TABLE_PREFIX: prod-
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  FANOUT_ENABLED: "true"
+  TWEETS_STREAM_ARN: ""

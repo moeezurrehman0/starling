@@ -1,0 +1,82 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny in both directions, with an explicit allow-list.
+#
+# Ingress-only default-deny is the common half-measure, and it is the less useful
+# half. It stops an attacker reaching this pod, but a compromised pod can still
+# reach every other service, every database and the cloud metadata endpoint. The
+# egress rules below are what actually contains a breach.
+#
+# Note that a NetworkPolicy is only enforced if the CNI implements it. kind's
+# default CNI does NOT, so `make kind-up` installs Calico -- otherwise these
+# objects apply cleanly, look correct in `kubectl get`, and enforce nothing,
+# which is the most dangerous possible outcome for a security control.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "service.name" . }}
+  labels: {{- include "service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "service.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- range .Values.networkPolicy.allowFrom }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- end }}
+    # Scraping must be allowed explicitly or the metrics simply stop, silently,
+    # and the first symptom is an empty dashboard during an incident.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    # DNS first. Every other rule is useless without it, and a missing DNS egress
+    # rule presents as a connection timeout to a name, which reads like the
+    # destination being down rather than like a policy problem.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- range .Values.networkPolicy.allowTo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+    {{- end }}
+    {{- if .Values.networkPolicy.allowExternalEgress }}
+    # Everything outside the cluster: DynamoDB, S3, ECR.
+    #
+    # The 169.254.169.254/32 exclusion is the important part. Without it this rule
+    # grants every pod access to the EC2 instance metadata service, and therefore
+    # to the node's instance role credentials -- which defeats IRSA entirely. IMDSv2
+    # makes that harder, not impossible, and the whole point of per-service roles is
+    # that a compromised service cannot borrow the node's.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+    {{- end }}
+{{- end }}

@@ -1,0 +1,42 @@
+# Tier L / Tier S shared values — the `dev` environment.
+#
+# Applied to every service before its own file. Anything here is a property of
+# the environment, not of the service.
+
+image:
+  # Overwritten per service with the service name appended. Kept here so a
+  # registry change is one edit rather than six.
+  repository: ghcr.io/twitter-clone
+
+replicaCount: 1
+
+# One replica in dev, so no PDB is rendered (see the pdbWanted helper) and no
+# topology spread is attempted. Both would be theatre on a three-node kind
+# cluster and the PDB would actively block `kubectl drain`.
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+
+serviceAccount:
+  # No IRSA in dev. Gap-register row 9: the sandbox uses the shared node instance
+  # role, and Tier L uses static LocalStack credentials.
+  roleArn: ""
+
+networkPolicy:
+  enabled: true
+
+secretEnv:
+  enabled: true
+  # Applied directly in Tier L and Tier S. In Tier P the same Secret name is
+  # produced by External Secrets Operator from Secrets Manager, so no workload
+  # manifest differs between the two.
+  secretName: twitter-clone-secrets

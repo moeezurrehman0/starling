@@ -1,0 +1,19 @@
+name: user-service
+port: 8081
+
+image:
+  repository: ghcr.io/twitter-clone/user-service
+  # Written by CI on merge to main. Never `latest` — the chart refuses it.
+  tag: sha-0000000
+
+networkPolicy:
+  # Only the gateway and the two services that resolve identity may call this.
+  # Nothing in the browser path reaches it directly.
+  allowFrom: [gateway, tweet-service, timeline-service]
+  allowTo: []
+
+env:
+  AWS_REGION: us-east-1
+  DYNAMODB_ENDPOINT: http://localstack:4566
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318

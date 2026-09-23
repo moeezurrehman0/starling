@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.name" . }}
+  labels: {{- include "service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  # Omitted entirely when an HPA owns this field. Setting it alongside an HPA is
+  # the classic GitOps thrash: the HPA scales to 8, ArgoCD sees spec.replicas
+  # drift from the 3 in Git, reverts it, the HPA scales back up, and the two
+  # fight in a loop that looks like flapping traffic. Kubernetes defaults the
+  # field to 1 on create and the HPA raises it to minReplicas within one sync.
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {{- include "service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "service.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when configuration changes. Without this, editing the
+        # ConfigMap updates the API object and nothing else: envFrom is resolved
+        # at pod start, so running pods keep the old values indefinitely and the
+        # change appears to have been applied when it has not.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: {{ .Values.port | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "service.name" . }}
+      # Pod Security Standards "restricted", stated explicitly rather than
+      # inherited from a namespace label. The namespace label enforces it; these
+      # fields are what make the pod actually admissible, and having them here
+      # means the chart is portable to a cluster whose namespace labels differ.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is distroless with no shell, so a graceful shutdown cannot be
+      # scripted with a preStop hook. Spring's `server.shutdown: graceful` handles
+      # it in-process; this just gives it room before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if gt (int (include "service.replicas" .)) 1 }}
+      # Spread replicas across nodes, but do not refuse to schedule if that is
+      # impossible. ScheduleAnyway matters specifically in Tier S: the playground
+      # caps the cluster at three nodes, and DoNotSchedule would leave pods
+      # Pending rather than merely unevenly placed.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "service.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: {{ include "service.name" . }}
+          image: {{ include "service.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              # MaxRAMPercentage rather than -Xmx so the heap tracks the memory
+              # limit and the two cannot drift apart.
+              value: >-
+                -XX:MaxRAMPercentage={{ .Values.jvm.maxRamPercentage }}
+                {{ .Values.jvm.extraOpts }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: {{ include "service.name" . }}
+            {{- if .Values.secretEnv.enabled }}
+            - secretRef:
+                name: {{ required "secretEnv.secretName is required when secretEnv is enabled" .Values.secretEnv.secretName }}
+            {{- end }}
+          {{- if .Values.probes.enabled }}
+          {{- if .Values.probes.startup.enabled }}
+          # A startup probe, not a long initialDelaySeconds. The latter delays
+          # liveness detection for the whole life of the pod; this only delays it
+          # until the application first answers.
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # readOnlyRootFilesystem is on, and the JVM still needs somewhere to
+            # write: /tmp for hsperfdata and any temp file, and the heap dump
+            # path. emptyDir rather than a relaxed root filesystem, because the
+            # point of the setting is that a writable path must be a deliberate,
+            # enumerated decision.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

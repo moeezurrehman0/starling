@@ -1,0 +1,38 @@
+name: web
+port: 3000
+
+image:
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/web
+  tag: sha-0000000
+
+probes:
+  livenessPath: /api/health
+  readinessPath: /api/health
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 512Mi
+
+networkPolicy:
+  allowFrom: []
+  allowTo: [gateway]
+
+ingress:
+  enabled: true
+  className: alb
+  host: twitterclone.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+env:
+  API_BASE: http://gateway:8080
+  HOSTNAME: 0.0.0.0
+  # SESSION_COOKIE_SECURE is deliberately absent. The application defaults it to
+  # true, so the only way to serve an insecure session cookie is to write the
+  # override down — which dev does, and which a reviewer can see in a diff.

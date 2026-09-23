@@ -1,0 +1,25 @@
+name: user-service
+port: 8081
+
+image:
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/user-service
+  tag: sha-0000000
+
+serviceAccount:
+  # Per-service IRSA role. Each service can reach its own tables and nothing
+  # else, which is the control the sandbox cannot demonstrate: there, every pod
+  # borrows the node instance role and the blast radius of a compromise is the
+  # whole account. Gap-register row 9.
+  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-user-service
+
+networkPolicy:
+  allowFrom: [gateway, tweet-service, timeline-service]
+  allowTo: []
+
+env:
+  AWS_REGION: eu-central-1
+  # No DYNAMODB_ENDPOINT. Absent means the SDK resolves the real regional
+  # endpoint; a blank string would be a malformed URI and fail at startup, so
+  # the key is omitted rather than emptied.
+  DYNAMODB_TABLE_PREFIX: prod-
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318

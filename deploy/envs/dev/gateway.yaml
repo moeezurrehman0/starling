@@ -1,0 +1,28 @@
+name: gateway
+port: 8080
+
+image:
+  repository: ghcr.io/twitter-clone/gateway
+  tag: sha-0000000
+
+networkPolicy:
+  # The web frontend is the only in-cluster caller; the Ingress controller lives
+  # in its own namespace and is admitted by the ingress rule below.
+  allowFrom: [web]
+  allowTo: [user-service, tweet-service, timeline-service, redis-main]
+
+ingress:
+  enabled: false
+
+env:
+  REDIS_MAIN_HOST: redis-main
+  REDIS_MAIN_PORT: "6379"
+  USER_SERVICE_URL: http://user-service:8081
+  TWEET_SERVICE_URL: http://tweet-service:8082
+  TIMELINE_SERVICE_URL: http://timeline-service:8083
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  # On in Kubernetes, off in compose. Compose turns it off so an e2e run that
+  # posts a few hundred tweets does not start returning 429 and look like a
+  # product bug; a cluster is the place where the limiter should actually be
+  # exercised.
+  RATE_LIMIT_ENABLED: "true"

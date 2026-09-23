@@ -1,0 +1,46 @@
+name: web
+port: 3000
+
+image:
+  repository: ghcr.io/twitter-clone/web
+  tag: sha-0000000
+
+# Not a Spring Boot service, so the actuator paths do not exist. Next's own
+# health route is the readiness signal, and there is no separate liveness
+# endpoint to point at -- using the same path for both is honest here, because
+# the frontend has no dependency it can be "not ready but alive" for.
+probes:
+  livenessPath: /api/health
+  readinessPath: /api/health
+
+jvm:
+  # No JVM. The chart still renders JAVA_TOOL_OPTIONS; Node ignores it.
+  maxRamPercentage: 70.0
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 384Mi
+
+networkPolicy:
+  allowFrom: []
+  allowTo: [gateway]
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ""
+
+env:
+  # The browser never uses this. It is the server component's own address for the
+  # edge, so everything the frontend knows about the backend is this one URL.
+  API_BASE: http://gateway:8080
+  HOSTNAME: 0.0.0.0
+  # There is no TLS in front of dev, so the session cookie cannot be Secure or
+  # the browser discards it -- silently, and in a way that still renders the
+  # post-login page as signed in. Secure defaults ON in the application precisely
+  # so that disabling it has to be written down somewhere a reviewer can see.
+  # Tier P sets nothing here and therefore gets Secure.
+  SESSION_COOKIE_SECURE: "false"

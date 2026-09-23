@@ -1,0 +1,8 @@
+apiVersion: v2
+name: service
+description: >-
+  One chart for every workload in the system. Adding a service is a values file,
+  not a new chart and not a cluster operation.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,31 @@
+# The fan-out worker: a stream consumer with no inbound traffic.
+name: fanout-worker
+port: 8084
+
+image:
+  repository: ghcr.io/twitter-clone/fanout-worker
+  tag: sha-0000000
+
+# Single replica for the same reason as the indexer: the consumer does not
+# coordinate shard ownership between replicas, so a second pod fans every tweet
+# out twice. Making that a property of the deployment rather than of a comment is
+# the only reliable protection.
+replicaCount: 1
+
+# No Service. Nothing calls it; it reads a stream. Rendering a Service here would
+# create a DNS name that resolves to a pod nobody should address, which is how a
+# "temporary" direct call gets written six months later.
+service:
+  enabled: false
+
+networkPolicy:
+  allowFrom: []
+  allowTo: []
+
+env:
+  AWS_REGION: us-east-1
+  DYNAMODB_ENDPOINT: http://localstack:4566
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  FANOUT_ENABLED: "true"
+  TWEETS_STREAM_ARN: ""

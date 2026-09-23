@@ -1,0 +1,154 @@
+# Defaults for the generic service chart.
+#
+# Everything here is either a safe default or deliberately empty. A value that
+# MUST be supplied per service is left null and asserted in _helpers.tpl with a
+# `required` — a chart that silently renders a Deployment with no image is worse
+# than one that refuses to render.
+#
+# The layering is: these defaults, then deploy/envs/<env>/values.yaml (tier-wide),
+# then deploy/envs/<env>/<service>.yaml (service-specific). ArgoCD applies them
+# in that order.
+
+# --- identity ---------------------------------------------------------------
+
+# Required. Also the Kubernetes object name, the Service DNS name and the
+# selector, so it must match what other services use in their URLs.
+name: ~
+
+image:
+  # Required. No default: a chart that can render with an implicit registry is a
+  # chart that can deploy the wrong thing.
+  repository: ~
+  # Required, and never `latest`. A mutable tag makes "what is running?"
+  # unanswerable and makes rollback a guess. CI writes sha-<short> here.
+  tag: ~
+  pullPolicy: IfNotPresent
+
+# --- shape ------------------------------------------------------------------
+
+replicaCount: 2
+
+# Container port. The five JVM services each listen on their own port so that the
+# compose topology and the Kubernetes topology are the same numbers.
+port: 8080
+
+# A workload with no inbound traffic — the fan-out worker — gets no Service, no
+# HPA and no Ingress. Setting this false is what expresses "this is a consumer",
+# rather than creating a Service nobody resolves.
+service:
+  enabled: true
+  type: ClusterIP
+
+# --- health -----------------------------------------------------------------
+#
+# Spring Boot's Kubernetes probes are enabled in every service's
+# application.yaml, so liveness and readiness are genuinely different signals
+# rather than the same endpoint twice. That distinction matters: readiness
+# failing removes a pod from the Service, while liveness failing restarts it. A
+# service that shares one endpoint for both will restart pods that are merely
+# waiting on a dependency, turning a downstream blip into a crash loop.
+probes:
+  enabled: true
+  livenessPath: /actuator/health/liveness
+  readinessPath: /actuator/health/readiness
+  # Startup probe rather than a long initialDelaySeconds on liveness. A JVM with
+  # CDS starts in about a second locally but can take much longer on a cold,
+  # throttled sandbox node, and the failureThreshold here buys that time without
+  # making liveness slow to notice a genuine hang for the rest of the pod's life.
+  startup:
+    enabled: true
+    periodSeconds: 3
+    failureThreshold: 40
+
+# --- resources --------------------------------------------------------------
+#
+# Requests are set and CPU limits are not. This is deliberate and is the one
+# resource decision worth arguing about.
+#
+# A CPU limit throttles at the quota boundary even when the node is idle, and for
+# a JVM the effect lands hardest exactly where it hurts most: during startup and
+# during GC, both of which are bursty. The result is a service that passes its
+# probes slowly, fails a startup probe on a loaded node, and gets restarted —
+# turning spare capacity into an outage. Requests give the scheduler what it needs
+# for bin-packing and give the pod a guaranteed floor under contention.
+#
+# Memory limits ARE set, because memory is not compressible: an unbounded pod
+# takes the node down with it. Limit equals request for memory, which makes the
+# pod Burstable rather than BestEffort and gives it a predictable OOM boundary.
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 512Mi
+
+# --- JVM --------------------------------------------------------------------
+#
+# MaxRAMPercentage rather than a fixed -Xmx, so the heap follows the memory limit
+# above and one value cannot drift from the other. 70% leaves room for metaspace,
+# code cache, thread stacks and direct buffers, which a container OOM kill counts
+# and -Xmx does not.
+jvm:
+  maxRamPercentage: 70.0
+  extraOpts: ""
+
+# --- scaling ----------------------------------------------------------------
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# A PDB with minAvailable: 1 on a single-replica workload blocks node drain
+# forever, so this is only rendered when replicas (or minReplicas) exceed one.
+# The chart works that out rather than trusting each values file to remember.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# --- identity and network ---------------------------------------------------
+
+serviceAccount:
+  create: true
+  # IRSA role ARN. Empty in Tier L and Tier S until the probe says otherwise;
+  # set in Tier P, where each service gets its own role.
+  roleArn: ""
+
+# NetworkPolicy is default-deny for ingress, with an explicit allow-list. The
+# egress rules are the interesting half: a compromised service that can reach
+# every other service is barely contained at all.
+networkPolicy:
+  enabled: true
+  # Names of workloads in this namespace permitted to call us.
+  allowFrom: []
+  # Names of workloads in this namespace we are permitted to call.
+  allowTo: []
+  # Allow egress to the AWS APIs and to anything outside the cluster. Every
+  # service needs DynamoDB, so this is effectively always true; it exists as a
+  # flag so that turning it off is a one-line experiment rather than a rewrite.
+  allowExternalEgress: true
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+
+# --- configuration ----------------------------------------------------------
+
+# Plain environment variables, rendered into a ConfigMap and consumed with
+# envFrom, so that a config change rolls the pods (the checksum annotation on the
+# Deployment does that) instead of silently applying to new pods only.
+env: {}
+
+# Keys read from an existing Secret. In Tier P the Secret is produced by External
+# Secrets Operator from Secrets Manager; in Tier L and S it is applied directly.
+# The workload is identical either way, which is the whole point.
+secretEnv:
+  enabled: false
+  secretName: ""
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []

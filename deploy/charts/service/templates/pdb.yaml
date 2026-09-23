@@ -1,0 +1,11 @@
+{{- if include "service.pdbWanted" . }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "service.name" . }}
+  labels: {{- include "service.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: {{- include "service.selectorLabels" . | nindent 6 }}
+{{- end }}

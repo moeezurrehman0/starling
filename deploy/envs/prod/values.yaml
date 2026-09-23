@@ -1,0 +1,40 @@
+# Tier P — production. Written, reviewed, rendered in CI, and never applied,
+# because the KodeKloud playground cannot express it (see docs/16-gap-register.md).
+#
+# The value of this directory is that the delta between it and dev/ is the honest
+# answer to "what is missing from the sandbox". Anything that is identical in both
+# is genuinely proven by Tier S; anything that differs here is only claimed.
+
+image:
+  # ECR, not GHCR. The sandbox pulls from GHCR because ECR needs a durable
+  # registry and an IAM role the playground wipes; gap-register row 4.
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone
+
+replicaCount: 3
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 65
+
+networkPolicy:
+  enabled: true
+
+secretEnv:
+  enabled: true
+  # Same name as dev. The difference is entirely in who writes it: dev applies a
+  # manifest, prod has External Secrets Operator project it from Secrets Manager.
+  # The workload cannot tell, which is the point — the rollout path is identical.
+  secretName: twitter-clone-secrets

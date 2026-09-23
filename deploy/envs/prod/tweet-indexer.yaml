@@ -1,0 +1,41 @@
+# See dev/tweet-indexer.yaml for why this is a separate workload.
+name: tweet-indexer
+port: 8082
+
+image:
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/tweet-service
+  tag: sha-0000000
+
+# One, in production, on purpose. This is the workload that most looks like it
+# should be scaled during an incident and most must not be: a second replica
+# double-indexes every tweet and the symptom is duplicate search results, not an
+# error. A single replica means a restart costs a gap in indexing, which the
+# stream checkpoint closes on recovery; two replicas mean corrupt data, which
+# nothing closes.
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+service:
+  enabled: false
+
+serviceAccount:
+  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-tweet-indexer
+
+networkPolicy:
+  allowFrom: []
+  allowTo: []
+
+env:
+  AWS_REGION: eu-central-1
+  DYNAMODB_TABLE_PREFIX: prod-
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  SEARCH_DB_URL: jdbc:postgresql://twitter-clone-prod.cluster-xxxx.eu-central-1.rds.amazonaws.com:5432/twitter_search
+  SEARCH_DB_USER: twitter
+  USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
+  SEARCH_INDEXER_ENABLED: "true"
+  TWEETS_STREAM_ARN: ""
