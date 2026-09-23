@@ -14,4 +14,8 @@ dependencies {
     implementation(libs.findLibrary("boot-restclient").get())
     implementation(libs.findLibrary("boot-security").get())
     implementation(libs.findLibrary("boot-oauth2-resource-server").get())
+    implementation(libs.findLibrary("boot-data-redis").get())
+
+    testImplementation(libs.findLibrary("boot-webmvc-test").get())
+    testImplementation(libs.findLibrary("security-test").get())
 }

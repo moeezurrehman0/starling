@@ -1,9 +1,37 @@
 spring:
   application:
     name: gateway
+  # Every proxied request blocks on an upstream. On platform threads the edge would be sized
+  # by its slowest downstream; on virtual threads it is sized by memory.
   threads:
     virtual:
       enabled: true
+  data:
+    redis:
+      host: ${REDIS_MAIN_HOST:localhost}
+      port: ${REDIS_MAIN_PORT:6379}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${USER_SERVICE_URL:http://localhost:8081}/v1/jwks
+
+twitterclone:
+  gateway:
+    # Longest prefix wins, so a more specific route can be added without reordering.
+    routes:
+      /v1/auth: ${USER_SERVICE_URL:http://localhost:8081}
+      /v1/jwks: ${USER_SERVICE_URL:http://localhost:8081}
+      /v1/users: ${USER_SERVICE_URL:http://localhost:8081}
+      /v1/tweets: ${TWEET_SERVICE_URL:http://localhost:8082}
+      /v1/timeline: ${TIMELINE_SERVICE_URL:http://localhost:8083}
+    upstream-timeout: ${UPSTREAM_TIMEOUT:5s}
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      # Burst covers a client opening a screen, refill is the rate worth sustaining.
+      burst: ${RATE_LIMIT_BURST:100}
+      refill: ${RATE_LIMIT_REFILL:100}
+      period: ${RATE_LIMIT_PERIOD:1s}
 
 server:
   port: 8080
