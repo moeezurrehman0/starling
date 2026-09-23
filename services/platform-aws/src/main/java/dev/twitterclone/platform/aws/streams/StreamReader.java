@@ -3,6 +3,7 @@ package dev.twitterclone.platform.aws.streams;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.model.DescribeStreamRequest;
@@ -51,11 +52,11 @@ public class StreamReader {
   private final DynamoDbStreamsClient streams;
   private final StreamCheckpoints checkpoints;
   private final String consumerGroup;
-  private final String streamArn;
+  private final Supplier<String> streamArn;
   private final int batchSize;
 
   /**
-   * Creates a reader.
+   * Creates a reader against a fixed ARN.
    *
    * @param streams the Streams client
    * @param checkpoints where progress is kept
@@ -68,6 +69,29 @@ public class StreamReader {
       StreamCheckpoints checkpoints,
       String consumerGroup,
       String streamArn,
+      int batchSize) {
+    this(streams, checkpoints, consumerGroup, () -> streamArn, batchSize);
+  }
+
+  /**
+   * Creates a reader against an ARN that may not be known yet.
+   *
+   * <p>The supplier is consulted on every pass rather than once at construction. Resolving the
+   * stream is a network call, and a consumer built at start-up is built at the moment its
+   * dependencies are least likely to answer; a reader that captured the result of one failed
+   * attempt would idle forever while looking healthy. See {@link StreamSource}.
+   *
+   * @param streams the Streams client
+   * @param checkpoints where progress is kept
+   * @param consumerGroup this consumer's name, which partitions the checkpoint table
+   * @param streamArn supplies the stream to read, returning blank while it is unknown
+   * @param batchSize the {@code GetRecords} limit
+   */
+  public StreamReader(
+      DynamoDbStreamsClient streams,
+      StreamCheckpoints checkpoints,
+      String consumerGroup,
+      Supplier<String> streamArn,
       int batchSize) {
     this.streams = streams;
     this.checkpoints = checkpoints;
@@ -88,13 +112,14 @@ public class StreamReader {
    * @return how many records were read across all shards
    */
   public int pollOnce(RecordHandler handler) {
-    if (streamArn.isBlank()) {
+    String arn = streamArn.get();
+    if (arn.isBlank()) {
       LOG.debug("no stream ARN configured for group {}, nothing to consume", consumerGroup);
       return 0;
     }
     int processed = 0;
-    for (Shard shard : shards()) {
-      processed += drain(shard, handler);
+    for (Shard shard : shards(arn)) {
+      processed += drain(arn, shard, handler);
     }
     return processed;
   }
@@ -109,16 +134,20 @@ public class StreamReader {
    * @return the shards
    */
   public List<Shard> shards() {
+    return shards(streamArn.get());
+  }
+
+  private List<Shard> shards(String arn) {
     return streams
-        .describeStream(DescribeStreamRequest.builder().streamArn(streamArn).build())
+        .describeStream(DescribeStreamRequest.builder().streamArn(arn).build())
         .streamDescription()
         .shards();
   }
 
-  private int drain(Shard shard, RecordHandler handler) {
+  private int drain(String arn, Shard shard, RecordHandler handler) {
     String iterator;
     try {
-      iterator = iteratorFor(shard);
+      iterator = iteratorFor(arn, shard);
     } catch (RuntimeException e) {
       LOG.warn("could not obtain an iterator for shard {}", shard.shardId(), e);
       return 0;
@@ -163,11 +192,11 @@ public class StreamReader {
     return records.size();
   }
 
-  private String iteratorFor(Shard shard) {
+  private String iteratorFor(String arn, Shard shard) {
     Optional<String> checkpoint = checkpoints.lastSequenceNumber(consumerGroup, shard.shardId());
 
     GetShardIteratorRequest.Builder request =
-        GetShardIteratorRequest.builder().streamArn(streamArn).shardId(shard.shardId());
+        GetShardIteratorRequest.builder().streamArn(arn).shardId(shard.shardId());
 
     checkpoint.ifPresentOrElse(
         sequence ->

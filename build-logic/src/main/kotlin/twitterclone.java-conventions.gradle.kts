@@ -90,6 +90,15 @@ testing {
 }
 
 tasks.withType<Test>().configureEach {
+    // The AWS SDK resolves a region and credentials when a client is *built*, not when one is
+    // used, so any test that loads a Spring context containing an SDK client fails on a machine
+    // with no AWS configuration -- and passes on a developer's laptop that happens to have one.
+    // Fixing that per-test invites the second kind of failure. These are deliberately invalid:
+    // a test that reaches AWS with them gets an auth error, which is the intended outcome, since
+    // no unit test in this repository is allowed to call AWS.
+    systemProperty("aws.region", "eu-central-1")
+    systemProperty("aws.accessKeyId", "test")
+    systemProperty("aws.secretAccessKey", "test")
     testLogging {
         events("failed", "skipped")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

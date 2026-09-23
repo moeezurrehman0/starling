@@ -7,6 +7,7 @@ import dev.twitterclone.platform.aws.streams.DynamoDbStreamCheckpoints;
 import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.streams.StreamReader;
 import dev.twitterclone.platform.aws.streams.StreamRecords;
+import dev.twitterclone.platform.aws.streams.StreamSource;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Map;
@@ -43,6 +44,7 @@ public class TweetIndexer {
 
   private final StreamReader reader;
   private final SearchIndex index;
+  private final StreamSource streamSource;
 
   public TweetIndexer(
       DynamoDbStreamsClient streams,
@@ -51,15 +53,27 @@ public class TweetIndexer {
       SearchProperties properties,
       StreamArns arns,
       DynamoDbProperties dynamo) {
+    // Blank resolves to the tweets table's current stream; see StreamArns. A source rather
+    // than a one-shot resolve so that a dependency which is not up yet at construction time
+    // does not permanently disable indexing -- see StreamSource for the incident.
+    this.streamSource = arns.source(properties.streamArn(), dynamo.table("tweets"));
     this.reader =
         new StreamReader(
             streams,
             checkpoints,
             StreamCheckpointItem.GROUP_SEARCH,
-            // Blank resolves to the tweets table's current stream; see StreamArns.
-            arns.resolve(properties.streamArn(), dynamo.table("tweets")).orElse(""),
+            streamSource,
             properties.batchSize());
     this.index = index;
+  }
+
+  /**
+   * The stream this indexer reads, which knows whether it has been found.
+   *
+   * @return the stream handle, for readiness reporting
+   */
+  public StreamSource streamSource() {
+    return streamSource;
   }
 
   /**

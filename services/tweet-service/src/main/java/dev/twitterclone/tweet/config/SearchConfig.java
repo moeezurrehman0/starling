@@ -1,18 +1,41 @@
 /* SPDX-License-Identifier: MIT */
 package dev.twitterclone.tweet.config;
 
+import dev.twitterclone.platform.aws.streams.StreamHealthIndicator;
 import dev.twitterclone.tweet.search.SearchProperties;
+import dev.twitterclone.tweet.search.TweetIndexer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Registers the search indexer's settings.
+ * Registers the search indexer's settings, and its readiness when it is switched on.
  *
- * <p>No beans of its own: the index repository, the indexer and its runner are all components, and
- * the {@code DataSource}, {@code JdbcClient} and Flyway migration run come from Boot's
- * autoconfiguration. This class exists so that {@link SearchProperties} is bound, which a record
- * annotated with {@code @ConfigurationProperties} is not unless something asks for it.
+ * <p>The index repository, the indexer and its runner are all components, and the {@code
+ * DataSource}, {@code JdbcClient} and Flyway migration run come from Boot's autoconfiguration. This
+ * class exists so that {@link SearchProperties} is bound, which a record annotated with
+ * {@code @ConfigurationProperties} is not unless something asks for it.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SearchProperties.class)
-public class SearchConfig {}
+public class SearchConfig {
+
+  /**
+   * Readiness for the tweets stream, and only where the stream matters.
+   *
+   * <p>This image runs as two Deployments: the request-serving {@code tweet-service}, where the
+   * indexer is off, and the single-replica {@code tweet-indexer}, where it is on. The indicator is
+   * registered in both but only reports out of service in the second. Letting an undiscoverable
+   * stream fail readiness on the request-serving replicas would turn an indexing problem into a
+   * total write outage.
+   *
+   * @param indexer the indexer whose stream is reported
+   * @param properties supplies whether the indexer is switched on
+   * @return the indicator, named {@code stream} in the health response
+   */
+  @Bean("stream")
+  public StreamHealthIndicator streamHealthIndicator(
+      TweetIndexer indexer, SearchProperties properties) {
+    return new StreamHealthIndicator(indexer.streamSource(), properties.enabled());
+  }
+}

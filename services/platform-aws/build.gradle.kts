@@ -32,6 +32,18 @@ dependencies {
     api(libs.findLibrary("jspecify").get())
 
     implementation(libs.findLibrary("aws-apache-client").get())
+    // Actuator at compile time only. This module contributes a HealthIndicator for stream
+    // consumers, but it is not an application and must not drag a starter into anything that
+    // consumes it. Every service that instantiates StreamHealthIndicator already has the
+    // actuator starter from the service conventions plugin; one that did not would simply
+    // never reference the class.
+    compileOnly(platform(libs.findLibrary("spring-boot-bom").get()))
+    compileOnly(libs.findLibrary("boot-actuator").get())
+    // Health is annotated with Jackson annotations. javac reads them while compiling against
+    // the class and -Werror turns the resulting "cannot find annotation method" note into a
+    // build failure, so the annotations have to be on the compile classpath even though this
+    // module never serialises anything.
+    compileOnly("com.fasterxml.jackson.core:jackson-annotations")
     // The stream reader logs its iterator and poison-record decisions; those log lines are the
     // only evidence a stalled consumer leaves.
     implementation("org.slf4j:slf4j-api")
@@ -53,5 +65,8 @@ dependencies {
     // Version from the Boot BOM. The starter is deliberately not used: this module has no
     // Spring context to test, only a reader and a store.
     testImplementation("org.mockito:mockito-junit-jupiter")
+    // The health indicator is the only Spring-facing class here, and the only one whose test
+    // needs the actuator types that main compiles against without shipping.
+    testImplementation(libs.findLibrary("boot-actuator").get())
     testRuntimeOnly(libs.findLibrary("junit-platform-launcher").get())
 }

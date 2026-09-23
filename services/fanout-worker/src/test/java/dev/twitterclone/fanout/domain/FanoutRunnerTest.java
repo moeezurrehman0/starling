@@ -115,6 +115,11 @@ class FanoutRunnerTest {
     eventually(() -> calls.get() >= 1);
     runner.close();
 
+    // Read the count after the loop has had time to unwind, not immediately. close() can
+    // land while a pass is already in flight, so the count legitimately rises once more
+    // afterwards; sampling straight away makes this test fail roughly one run in twenty for
+    // a reason that has nothing to do with what it is checking.
+    Thread.sleep(200);
     int seen = calls.get();
     Thread.sleep(200);
     assertThat(calls.get()).isEqualTo(seen);

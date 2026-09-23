@@ -46,6 +46,21 @@ management:
       probes:
         enabled: true
       show-details: when-authorized
+      # The readiness group is listed explicitly so that `stream` joins it. Boot's default
+      # readiness group is readinessState alone -- every other HealthIndicator lands in
+      # liveness and in the composite, which is the wrong place for this one: a consumer
+      # that cannot find its stream must be taken out of service, not restarted. Restarting
+      # it does not make the stream appear, and a CrashLoopBackOff would replace a diagnosable
+      # condition with a pod nobody can exec into.
+      group:
+        readiness:
+          include: readinessState,stream
+          # OUT_OF_SERVICE maps to DOWN for the group so the probe actually fails. Left at
+          # the default it reports 200 with a status of OUT_OF_SERVICE in the body, which
+          # Kubernetes does not read -- a not-ready pod that stays in the Service.
+          status:
+            http-mapping:
+              out-of-service: 503
   metrics:
     tags:
       application: ${spring.application.name}

@@ -8,6 +8,7 @@ import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.streams.StreamReader;
 import dev.twitterclone.platform.aws.streams.StreamRecords;
+import dev.twitterclone.platform.aws.streams.StreamSource;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -40,6 +41,7 @@ public class StreamConsumer {
 
   private final StreamReader reader;
   private final FanoutService fanout;
+  private final StreamSource streamSource;
 
   public StreamConsumer(
       DynamoDbStreamsClient streams,
@@ -48,17 +50,31 @@ public class StreamConsumer {
       FanoutProperties properties,
       StreamArns arns,
       DynamoDbProperties dynamo) {
+    // Blank resolves to whatever stream the tweets table currently has. LocalStack mints a
+    // new ARN every time the stack is recreated, so a pinned value would be stale after the
+    // first teardown.
+    //
+    // A source rather than a one-shot resolve: discovery used to happen here, in the
+    // constructor, and a single timed-out DescribeTable left this consumer holding a blank
+    // ARN for the life of the process -- running, ready, and silently consuming nothing.
+    this.streamSource = arns.source(properties.streamArn(), dynamo.table("tweets"));
     this.reader =
         new StreamReader(
             streams,
             checkpoints,
             StreamCheckpointItem.GROUP_FANOUT,
-            // Blank resolves to whatever stream the tweets table currently has. LocalStack
-            // mints a new ARN every time the stack is recreated, so a pinned value would be
-            // stale after the first teardown.
-            arns.resolve(properties.streamArn(), dynamo.table("tweets")).orElse(""),
+            streamSource,
             properties.batchSize());
     this.fanout = fanout;
+  }
+
+  /**
+   * The stream this consumer reads, which knows whether it has been found.
+   *
+   * @return the stream handle, for readiness reporting
+   */
+  public StreamSource streamSource() {
+    return streamSource;
   }
 
   /**

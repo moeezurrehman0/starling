@@ -313,9 +313,29 @@ started`, passed both probes and sat at `1/1 Running` with an empty subscription
 accepted with `201`, rows landed in DynamoDB, and follower timelines stayed empty. No error
 surfaced anywhere: the failure is only visible as an absence. This is the worst shape a
 failure can take, because every dashboard is green and the product is silently broken.
-*Control:* recorded here now; the fix belongs in the worker — a failed discovery must either
-retry until it succeeds or fail the readiness probe, and "started with no stream" must never
-be a `WARN`. Tracked as product gap work, not a deployment concern.
+*Control:* **fixed, both ways.** Discovery moved out of the constructor into `StreamSource`,
+which resolves lazily, retries on every poll until it succeeds and caches only success; and
+`StreamHealthIndicator` puts the result in the **readiness** group, so a consumer that has not
+found its stream is taken out of service instead of reporting Ready. Readiness rather than
+liveness deliberately: restarting the pod does not make the stream appear, and a
+CrashLoopBackOff would replace a diagnosable condition with a container nobody can exec into.
+The indicator performs no I/O — a health check that calls a dependency lets that dependency's
+latency decide the probe result.
+
+Verified against the live cluster by re-creating the original conditions: the `localstack`
+egress rule was removed from the fan-out NetworkPolicy and the pod restarted. It came up
+`0/1 Running` with `Startup probe failed: HTTP probe failed with statuscode: 503` and the
+rollout stalled while the previous pod kept serving — where before it came up `1/1` and
+silent. Restoring the rule returned it to `1/1` **with no restart**, which is the retry
+proving itself.
+
+Two smaller decisions are load-bearing. The indicator is registered unconditionally and told
+whether the process is *supposed* to consume, rather than only existing when it is: a health
+group lists members by name and Boot refuses to start when one is missing, so a conditional
+bean would have forced `validate-group-membership: false` on every service. And in
+`tweet-service` it reports UP whenever the indexer is off, because that image also runs as the
+request-serving Deployment — an undiscoverable stream must not be able to take every
+request-serving replica out of the Service and stop writes entirely.
 
 **19. `helm upgrade --reuse-values -f file` silently reverted the image tag.** Re-applying one
 env file to change a single NetworkPolicy field dropped the `--set image.tag=sha-local` from
@@ -352,6 +372,34 @@ writes to the run summary; when the key is absent it writes "**skip, not a pass*
 a breakdown. The check still passes — blocking every merge on an unobtainable secret is worse
 — but nobody reading the run can mistake the reason. The same shape applies to every
 third-party gate added later.
+
+**22. A rebuild deployed nothing, and the deploy script reported success.** Tier L pins the
+image tag at `sha-local`. A code change therefore produces a new image under the *same* tag, so
+the rendered Deployment is byte-identical to the running one, Helm finds nothing to change, no
+pod is replaced — and `kubectl rollout status` immediately returns success for the pods that
+were already there. Every line of output says the deploy worked. The cluster runs the previous
+build, and the only symptom is that the change you just made is still missing, which reads as
+"my fix didn't work" rather than "my fix was never deployed". This cost a full debugging cycle:
+the fan-out fix was tested against a pod built before it existed. *Control:* `kind-deploy.sh`
+now passes the local image id as a pod annotation, so the spec changes exactly when the image
+content changes. An unconditional `rollout restart` would also have worked but would bounce all
+seven workloads whenever one is edited; this restarts only what actually changed, verified by
+running the script twice with no source change and confirming pod ages keep climbing.
+
+**23. The wiring layer had no test at all.** Until this phase the repository contained no Spring
+context test — not one `@SpringBootTest`. Every `@Configuration`, every `@ConfigurationProperties`
+binding, every actuator group and every bean-name reference was therefore first exercised by a
+pod. That is tolerable while configuration is inert, and stops being tolerable the moment a
+string in YAML has to match a bean name: `management.endpoint.health.group.readiness.include`
+names `stream`, and Boot refuses to start when it matches nothing. A rename would have passed
+`./gradlew build` and failed every pod in the fleet. *Control:* `FanoutWorkerApplicationTest`
+now loads the real context with nothing reachable, which is both the group-resolution proof and
+the honest reproduction of the state row 18 was about. Writing it exposed a second-order
+problem worth recording: the AWS SDK resolves region and credentials when a client is *built*,
+so any context test fails on a machine with no AWS configuration and passes on a developer's
+laptop that happens to have some. Deliberately invalid values are now set for every test JVM in
+`java-conventions`, so the suite behaves identically everywhere and any test that does reach AWS
+fails with an auth error rather than silently using someone's real account.
 
 ---
 

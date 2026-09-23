@@ -180,12 +180,27 @@ kubectl wait --for=condition=complete --timeout=300s -n "$NS" job/create-tables
 
 for svc in "${SERVICES[@]}" tweet-indexer; do
   log "installing $svc"
+  img="twitterclone/${svc/tweet-indexer/tweet-service}"
+  # The image id, as a pod annotation.
+  #
+  # Without it a rebuild deploys nothing. TAG is fixed (`sha-local`), so a code
+  # change produces a new image under the same tag, the rendered Deployment is
+  # byte-identical to the running one, Helm makes no change, no pod is replaced --
+  # and `rollout status` immediately reports success for the pods already there.
+  # The script says "deployed", the cluster runs the previous build, and the only
+  # way to notice is that the fix you just made is still missing.
+  #
+  # An annotation rather than an unconditional `rollout restart`: this restarts
+  # exactly the workloads whose image actually changed, so re-running the script
+  # after editing one service does not bounce the other six.
+  digest="$(docker image inspect "$img:$TAG" --format '{{.Id}}' 2>/dev/null || echo unknown)"
   helm upgrade --install "$svc" "$ROOT/deploy/charts/service" -n "$NS" \
     -f "$ROOT/deploy/envs/dev/values.yaml" \
     -f "$ROOT/deploy/envs/dev/$svc.yaml" \
-    --set "image.repository=twitterclone/${svc/tweet-indexer/tweet-service}" \
+    --set "image.repository=$img" \
     --set "image.tag=$TAG" \
-    --set image.pullPolicy=Never
+    --set image.pullPolicy=Never \
+    --set "podAnnotations.twitterclone\.dev/image-id=$digest"
 done
 
 # NodePort for the frontend, matching the extraPortMapping in the kind config.

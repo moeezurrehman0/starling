@@ -48,6 +48,34 @@ public final class StreamArns {
    * @return the ARN to consume, or empty when there is none
    */
   public Optional<String> resolve(String configured, String tableName) {
+    return resolve(configured, tableName, true);
+  }
+
+  /**
+   * A lazily-resolving, retrying handle on a table's stream.
+   *
+   * <p>Prefer this to {@link #resolve} anywhere the result is needed for the life of the process.
+   * {@code resolve} answers once; if that one attempt fails — and at start-up it is exactly as
+   * likely to fail as any other first call to a dependency — the caller is left holding an empty
+   * result forever. A {@link StreamSource} retries until it succeeds and can say whether it has.
+   *
+   * @param configured the ARN from configuration, possibly blank
+   * @param tableName the table whose stream is wanted
+   * @return a handle that resolves on first use and caches only success
+   */
+  public StreamSource source(String configured, String tableName) {
+    return new StreamSource(this, configured, tableName);
+  }
+
+  /**
+   * As {@link #resolve(String, String)}, with control over failure logging.
+   *
+   * @param configured the ARN from configuration, possibly blank
+   * @param tableName the table whose stream is wanted
+   * @param logFailure whether a failed discovery should be logged at {@code WARN}
+   * @return the ARN to consume, or empty when there is none
+   */
+  public Optional<String> resolve(String configured, String tableName, boolean logFailure) {
     if (configured != null && !configured.isBlank()) {
       return Optional.of(configured);
     }
@@ -59,13 +87,17 @@ public final class StreamArns {
         // The table exists but has no stream. Almost always a table created without a
         // StreamSpecification, which is a deployment bug rather than a transient fault, so it
         // is worth a warning even though it is not fatal.
-        LOG.warn("table {} has no stream enabled; nothing to consume", tableName);
+        if (logFailure) {
+          LOG.warn("table {} has no stream enabled; nothing to consume", tableName);
+        }
         return Optional.empty();
       }
       LOG.info("discovered stream {} for table {}", discovered, tableName);
       return Optional.of(discovered);
     } catch (RuntimeException e) {
-      LOG.warn("could not discover the stream for table {}: {}", tableName, e.toString());
+      if (logFailure) {
+        LOG.warn("could not discover the stream for table {}: {}", tableName, e.toString());
+      }
       return Optional.empty();
     }
   }
