@@ -55,6 +55,10 @@ flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
 
 # --- Test ------------------------------------------------------------------
+# Plain JUnit, for modules that have no Spring dependency and should not gain one just to
+# be tested. Version comes from the Spring Boot BOM so it stays aligned with boot-test.
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 assertj = { module = "org.assertj:assertj-core" }
 archunit = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 # Testcontainers 2.x renamed every module to testcontainers-<name>;

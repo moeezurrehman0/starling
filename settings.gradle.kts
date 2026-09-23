@@ -21,6 +21,9 @@ dependencyResolutionManagement {
 rootProject.name = "twitter-clone"
 
 include(
+    // Declarations only: the DynamoDB item records and TableSchemas shared by the services
+    // that read and write the same tables. Listed first because everything else depends on it.
+    "services:contracts",
     "services:gateway",
     "services:user-service",
     "services:tweet-service",
