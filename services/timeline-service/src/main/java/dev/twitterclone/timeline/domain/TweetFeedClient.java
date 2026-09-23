@@ -114,7 +114,7 @@ public class TweetFeedClient {
               .uri(
                   builder ->
                       builder
-                          .path("/v1/users/{id}/tweets")
+                          .path("/v1/tweets/by-author/{id}")
                           .queryParam("limit", properties.celebrityFeedSize())
                           .build(authorId))
               .retrieve()

@@ -25,7 +25,7 @@ class RouteTableTest {
       Map.of(
           "/v1/users", "http://users",
           "/v1/tweets", "http://tweets",
-          "/v1/timeline", "http://timeline");
+          "/v1/timelines", "http://timeline");
 
   @Test
   @DisplayName("routes an exact prefix")

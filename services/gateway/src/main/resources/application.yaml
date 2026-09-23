@@ -20,11 +20,13 @@ twitterclone:
   gateway:
     # Longest prefix wins, so a more specific route can be added without reordering.
     routes:
-      /v1/auth: ${USER_SERVICE_URL:http://localhost:8081}
       /v1/jwks: ${USER_SERVICE_URL:http://localhost:8081}
+      /v1/sessions: ${USER_SERVICE_URL:http://localhost:8081}
       /v1/users: ${USER_SERVICE_URL:http://localhost:8081}
+      /v1/media: ${TWEET_SERVICE_URL:http://localhost:8082}
+      /v1/search: ${TWEET_SERVICE_URL:http://localhost:8082}
       /v1/tweets: ${TWEET_SERVICE_URL:http://localhost:8082}
-      /v1/timeline: ${TIMELINE_SERVICE_URL:http://localhost:8083}
+      /v1/timelines: ${TIMELINE_SERVICE_URL:http://localhost:8083}
     upstream-timeout: ${UPSTREAM_TIMEOUT:5s}
     rate-limit:
       enabled: ${RATE_LIMIT_ENABLED:true}

@@ -269,7 +269,7 @@ class TweetControllerTest {
     when(tweets.byAuthor(eq(CALLER), any(), anyInt()))
         .thenReturn(new TweetRepository.TweetPage(List.of(), Optional.empty()));
 
-    mvc.perform(get("/v1/users/" + CALLER + "/tweets").param("limit", "10000"))
+    mvc.perform(get("/v1/tweets/by-author/" + CALLER).param("limit", "10000"))
         .andExpect(status().isOk());
 
     verify(tweets).byAuthor(eq(CALLER), eq(Optional.empty()), eq(50));

@@ -168,12 +168,16 @@ public class TweetController {
   /**
    * One page of an author's tweets, newest first.
    *
+   * <p>Lives under {@code /v1/tweets} rather than {@code /v1/users/{id}/tweets} so the gateway can
+   * route it: the gateway matches on a static prefix, and a user-scoped path would be sent to
+   * user-service, which does not serve tweets.
+   *
    * @param id the author
    * @param cursor cursor from the previous page
    * @param limit page size, clamped
    * @return the page
    */
-  @GetMapping("/users/{id}/tweets")
+  @GetMapping("/tweets/by-author/{id}")
   public Api.TweetPage byAuthor(
       @PathVariable String id,
       @RequestParam(required = false) @Nullable String cursor,

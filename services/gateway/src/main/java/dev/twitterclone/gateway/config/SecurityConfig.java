@@ -34,11 +34,14 @@ public class SecurityConfig {
                     .permitAll()
                     // Sign-up, log-in and the JWKS itself cannot require a token; the first two
                     // are how a token is obtained and the third is how it is verified.
-                    .requestMatchers("/v1/auth/**", "/v1/jwks")
+                    .requestMatchers(HttpMethod.POST, "/v1/users", "/v1/sessions")
                     .permitAll()
-                    // Reading a public profile or a tweet without an account is the product
-                    // working as intended, not a hole. Writes always need a principal.
-                    .requestMatchers(HttpMethod.GET, "/v1/users/**", "/v1/tweets/**")
+                    .requestMatchers(HttpMethod.GET, "/v1/jwks")
+                    .permitAll()
+                    // Reading a public profile, a tweet or a search result without an account is
+                    // the product working as intended, not a hole. Writes always need a principal.
+                    .requestMatchers(
+                        HttpMethod.GET, "/v1/users/**", "/v1/tweets/**", "/v1/search/**")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

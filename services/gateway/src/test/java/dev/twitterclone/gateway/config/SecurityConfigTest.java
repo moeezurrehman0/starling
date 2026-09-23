@@ -50,9 +50,16 @@ class SecurityConfigTest {
 
   @Test
   @DisplayName("log-in does not require a token")
-  void authIsOpen() throws Exception {
+  void loginIsOpen() throws Exception {
     // It is how a token is obtained. Requiring one would be a closed loop.
-    mvc.perform(post("/v1/auth/login")).andExpect(status().isNotFound());
+    mvc.perform(post("/v1/sessions")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  @DisplayName("sign-up does not require a token")
+  void registrationIsOpen() throws Exception {
+    // A new account has no credential yet, so the create call cannot demand one.
+    mvc.perform(post("/v1/users")).andExpect(status().isNotFound());
   }
 
   @Test
@@ -76,6 +83,12 @@ class SecurityConfigTest {
   }
 
   @Test
+  @DisplayName("searching without an account is allowed")
+  void anonymousSearch() throws Exception {
+    mvc.perform(get("/v1/search/tweets")).andExpect(status().isNotFound());
+  }
+
+  @Test
   @DisplayName("posting a tweet without a token is refused")
   void writesRequireAToken() throws Exception {
     mvc.perform(post("/v1/tweets")).andExpect(status().isUnauthorized());
@@ -91,7 +104,7 @@ class SecurityConfigTest {
   @DisplayName("a home timeline without a token is refused")
   void timelineRequiresAToken() throws Exception {
     // There is no such thing as the logged-out user's timeline, so there is nothing to answer.
-    mvc.perform(get("/v1/timeline/home")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/v1/timelines/home")).andExpect(status().isUnauthorized());
   }
 
   @Test

@@ -59,7 +59,7 @@ class TweetFeedClientTest {
     @DisplayName("pulls a celebrity's recent tweets with the configured page size")
     void pulls() {
       server
-          .expect(requestTo("http://tweets/v1/users/star/tweets?limit=50"))
+          .expect(requestTo("http://tweets/v1/tweets/by-author/star?limit=50"))
           .andRespond(
               withSuccess(
                   "{\"items\":[{\"id\":\"t2\",\"authorId\":\"star\",\"text\":\"hi\","
@@ -74,7 +74,7 @@ class TweetFeedClientTest {
     @DisplayName("caches per author, not per reader")
     void cachedPerAuthor() {
       server
-          .expect(requestTo("http://tweets/v1/users/star/tweets?limit=50"))
+          .expect(requestTo("http://tweets/v1/tweets/by-author/star?limit=50"))
           .andRespond(withSuccess("{\"items\":[]}", MediaType.APPLICATION_JSON));
 
       client().recentByAuthor("star");
@@ -90,7 +90,7 @@ class TweetFeedClientTest {
     @DisplayName("degrades to an empty feed when tweet-service fails")
     void degrades() {
       server
-          .expect(requestTo("http://tweets/v1/users/star/tweets?limit=50"))
+          .expect(requestTo("http://tweets/v1/tweets/by-author/star?limit=50"))
           .andRespond(withServerError());
 
       assertThat(client().recentByAuthor("star")).isEmpty();
