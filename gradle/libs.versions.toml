@@ -1,0 +1,68 @@
+[versions]
+springBoot = "4.1.1"
+jspecify = "1.0.1"
+testcontainers = "2.0.5"
+checkstyle = "14.1.0"
+googleJavaFormat = "1.36.1"
+spotless = "8.10.2"
+spotbugs = "6.5.11"
+jacoco = "0.8.13"
+archunit = "1.4.1"
+
+[libraries]
+# --- Platforms -------------------------------------------------------------
+# Boot 4.1.1 already manages Testcontainers 2.0.5, so no separate BOM is needed.
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+
+# --- Spring Boot 4 modular starters ----------------------------------------
+# Boot 4 removed the umbrella starters: there is no spring-boot-starter-web.
+boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
+boot-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+boot-restclient = { module = "org.springframework.boot:spring-boot-starter-restclient" }
+boot-jackson = { module = "org.springframework.boot:spring-boot-starter-jackson" }
+boot-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+boot-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+boot-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+boot-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
+boot-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+boot-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
+boot-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
+
+# --- Observability ---------------------------------------------------------
+micrometer-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+micrometer-tracing-bridge-otel = { module = "io.micrometer:micrometer-tracing-bridge-otel" }
+otel-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp" }
+
+# --- Persistence -----------------------------------------------------------
+postgresql = { module = "org.postgresql:postgresql" }
+flyway-core = { module = "org.flywaydb:flyway-core" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+
+# --- Null safety -----------------------------------------------------------
+jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
+
+# --- Test ------------------------------------------------------------------
+assertj = { module = "org.assertj:assertj-core" }
+archunit = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+# Testcontainers 2.x renamed every module to testcontainers-<name>;
+# the 1.x coordinates (org.testcontainers:postgresql) no longer resolve.
+testcontainers-junit = { module = "org.testcontainers:testcontainers-junit-jupiter" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+testcontainers-localstack = { module = "org.testcontainers:testcontainers-localstack" }
+
+# --- Gradle plugin artifacts, for use inside build-logic ------------------
+plugin-spring-boot = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "springBoot" }
+plugin-spotless = { module = "com.diffplug.spotless:spotless-plugin-gradle", version.ref = "spotless" }
+plugin-spotbugs = { module = "com.github.spotbugs:com.github.spotbugs.gradle.plugin", version.ref = "spotbugs" }
+
+[bundles]
+observability = ["micrometer-prometheus", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
+persistence = ["boot-data-jpa", "postgresql", "flyway-core", "flyway-postgresql"]
+testing = ["boot-test", "assertj", "archunit"]
+testcontainers = ["boot-testcontainers", "testcontainers-junit", "testcontainers-postgresql"]
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs" }

@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Deliberately narrow. Spotless with google-java-format already owns every
+  formatting decision, so Checkstyle only enforces rules a formatter cannot:
+  structure, naming, and a small set of genuine correctness hazards.
+-->
+<module name="Checker">
+  <property name="severity" value="error"/>
+  <property name="charset" value="UTF-8"/>
+  <property name="fileExtensions" value="java"/>
+
+  <module name="NewlineAtEndOfFile"/>
+  <module name="FileTabCharacter"/>
+
+  <module name="SuppressionFilter">
+    <property name="file" value="${config_loc}/suppressions.xml"/>
+    <property name="optional" value="true"/>
+  </module>
+
+  <module name="TreeWalker">
+    <!-- Naming -->
+    <module name="PackageName">
+      <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+    </module>
+    <module name="TypeName"/>
+    <module name="MethodName"/>
+    <module name="MemberName"/>
+    <module name="ParameterName"/>
+    <module name="LocalVariableName"/>
+    <module name="ConstantName"/>
+
+    <!-- Imports -->
+    <module name="AvoidStarImport"/>
+    <module name="UnusedImports"/>
+    <module name="RedundantImport"/>
+    <module name="IllegalImport">
+      <property name="illegalPkgs"
+                value="sun, com.sun, jdk.internal, org.junit.Assert, junit.framework"/>
+      <!-- Boot 4 uses Jackson 3 under tools.jackson.*; the old namespace is a
+           transitive leak and must not appear in our source. -->
+      <property name="illegalClasses" value="com.fasterxml.jackson.databind.ObjectMapper"/>
+    </module>
+
+    <!-- Correctness hazards -->
+    <module name="EqualsHashCode"/>
+    <module name="CovariantEquals"/>
+    <module name="StringLiteralEquality"/>
+    <module name="NoFinalizer"/>
+    <module name="SimplifyBooleanExpression"/>
+    <module name="SimplifyBooleanReturn"/>
+    <module name="MissingSwitchDefault"/>
+    <module name="FallThrough"/>
+    <module name="DefaultComesLast"/>
+    <module name="IllegalCatch">
+      <property name="illegalClassNames"
+                value="java.lang.Throwable, java.lang.Error"/>
+    </module>
+    <module name="IllegalThrows"/>
+    <module name="EmptyBlock">
+      <property name="option" value="text"/>
+    </module>
+    <module name="NeedBraces"/>
+    <module name="OneStatementPerLine"/>
+    <module name="MultipleVariableDeclarations"/>
+    <module name="ModifierOrder"/>
+
+    <!-- Structure -->
+    <module name="OuterTypeFilename"/>
+    <module name="OneTopLevelClass"/>
+    <module name="HideUtilityClassConstructor"/>
+    <module name="MethodLength">
+      <property name="max" value="80"/>
+    </module>
+    <module name="ParameterNumber">
+      <property name="max" value="8"/>
+    </module>
+    <module name="CyclomaticComplexity">
+      <property name="max" value="12"/>
+    </module>
+
+    <!-- Documentation on the public surface only -->
+    <module name="JavadocType">
+      <property name="scope" value="public"/>
+      <property name="allowMissingParamTags" value="true"/>
+    </module>
+    <module name="InvalidJavadocPosition"/>
+    <module name="NonEmptyAtclauseDescription"/>
+
+    <!-- Comments that are really deferred work must be traceable -->
+    <module name="TodoComment">
+      <property name="format" value="(TODO|FIXME)(?!\(#\d+\))"/>
+      <property name="severity" value="warning"/>
+    </module>
+  </module>
+</module>

@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.svg   text
+*.ico   binary
+
+gradlew      text eol=lf
+gradlew.bat  text eol=crlf
+*.sh         text eol=lf
+
+# Keep generated and vendored files out of diffs and language statistics.
+gradle/wrapper/gradle-wrapper.jar binary linguist-vendored
+CHANGELOG.md                      linguist-generated
+docs/diagrams/*.mmd               linguist-documentation

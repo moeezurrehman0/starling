@@ -1,0 +1,12 @@
+# Every file needs an owner; this is a solo project, so that owner is the repo owner.
+*                           @OWNER
+
+# Anything that can change what runs, or what it can reach, gets explicit review.
+/infra/                     @OWNER
+/deploy/                    @OWNER
+/.github/                   @OWNER
+/build-logic/               @OWNER
+/config/                    @OWNER
+/docs/adr/                  @OWNER
+/docs/16-gap-register.md    @OWNER
+/AGENTS.md                  @OWNER

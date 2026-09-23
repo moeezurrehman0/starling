@@ -1,0 +1,54 @@
+name: Change proposal
+description: A feature, a refactor, or an infrastructure change.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing today? Describe the problem, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tiers affected
+      multiple: true
+      options:
+        - L — local
+        - S — sandbox
+        - P — production
+        - none (docs or tooling)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: adr
+    attributes:
+      label: Does this need an ADR?
+      description: Anything that changes a boundary, a dependency, or a trade-off does.
+      options:
+        - "Yes"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: What does this cost?
+      description: >
+        Money, capacity against the 9.6 GiB sandbox budget, CI minutes, operational
+        burden, or time in the 180-minute session. Proposals with no stated cost
+        usually have an unexamined one.
+    validations:
+      required: true

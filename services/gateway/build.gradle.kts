@@ -1,0 +1,17 @@
+plugins {
+    id("twitterclone.spring-service-conventions")
+}
+
+description = "Edge service: routing, authentication, rate limiting and API versioning."
+
+val libs =
+    extensions
+        .getByType<org.gradle.api.artifacts.VersionCatalogsExtension>()
+        .named("libs")
+
+dependencies {
+    implementation(libs.findLibrary("boot-webmvc").get())
+    implementation(libs.findLibrary("boot-restclient").get())
+    implementation(libs.findLibrary("boot-security").get())
+    implementation(libs.findLibrary("boot-oauth2-resource-server").get())
+}

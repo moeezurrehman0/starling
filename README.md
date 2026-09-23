@@ -48,13 +48,15 @@ this repo that proves each production path.** It is the most useful document her
 
 ## Status
 
-Phase 1 of 14 complete — the design is written. No code yet.
+Phases 1–2 of 14 complete. The build is real: five Spring Boot 4.1.1 services
+compile and test on Java 25, with formatting, static analysis and a coverage gate
+enforced. No business logic yet.
 
 | # | Phase | Tier | State |
 |---|-------|------|-------|
 | 1 | System design, diagrams, ADRs, gap register | — | **done** |
-| 2 | Monorepo scaffold, Gradle/Java 25/Boot 4.1.1, conventions | — | next |
-| 3 | jlink + CDS distroless base image | — | |
+| 2 | Monorepo scaffold, Gradle/Java 25/Boot 4.1.1, conventions | — | **done** |
+| 3 | jlink + CDS distroless base image | — | next |
 | 4 | Services + web + compose stack | L | |
 | 5 | CI pipeline | L | |
 | 6 | Playground capability probe | S | |

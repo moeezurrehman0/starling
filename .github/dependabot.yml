@@ -1,0 +1,78 @@
+version: 2
+
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      spring:
+        patterns:
+          - "org.springframework*"
+          - "io.micrometer*"
+      testing:
+        patterns:
+          - "org.junit*"
+          - "org.testcontainers*"
+          - "org.assertj*"
+          - "org.mockito*"
+      build-tooling:
+        patterns:
+          - "com.diffplug*"
+          - "com.github.spotbugs*"
+          - "com.puppycrawl*"
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      next:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+      dev-dependencies:
+        dependency-type: development
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: terraform
+    directory: "/infra/terraform"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: docker
+    directories:
+      - "/services/gateway"
+      - "/services/user-service"
+      - "/services/tweet-service"
+      - "/services/timeline-service"
+      - "/services/fanout-worker"
+      - "/web"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build"

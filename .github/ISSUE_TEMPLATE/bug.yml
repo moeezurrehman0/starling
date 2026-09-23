@@ -1,0 +1,52 @@
+name: Bug report
+description: Something behaves differently from how it is documented.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier
+      description: Where did you see this?
+      options:
+        - L — local (compose / kind)
+        - S — sandbox (KodeKloud EKS)
+        - P — production (written, never applied)
+        - CI
+    validations:
+      required: true
+
+  - type: input
+    id: component
+    attributes:
+      label: Component
+      placeholder: gateway, tweet-service, Helm chart, Terraform module, workflow…
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: Quote the document or ADR that says it should work this way, if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the exact command, the output, and a trace ID if you have one.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true

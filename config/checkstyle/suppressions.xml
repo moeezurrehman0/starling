@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+  <!--
+    Spring Boot entry points hold only a static main, which Checkstyle reads as a
+    utility class. Adding a private constructor would be wrong: the class is a
+    configuration source that Spring may proxy.
+  -->
+  <suppress checks="HideUtilityClassConstructor" files=".*Application\.java$"/>
+
+  <!-- Tests document themselves through their names; Javadoc adds noise. -->
+  <suppress checks="JavadocType" files="[\\/]src[\\/](test|integrationTest)[\\/]"/>
+  <suppress checks="MethodLength" files="[\\/]src[\\/](test|integrationTest)[\\/]"/>
+
+  <!-- Generated sources are not ours to style. -->
+  <suppress checks="[a-zA-Z0-9]*" files="[\\/]build[\\/]generated[\\/]"/>
+</suppressions>

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Architecture decisions
+    url: https://github.com/OWNER/twitter-clone/tree/main/docs/adr
+    about: Decisions and their trade-offs are recorded as ADRs — check there first.
+  - name: Sandbox vs. production differences
+    url: https://github.com/OWNER/twitter-clone/blob/main/docs/16-gap-register.md
+    about: If something is missing in the sandbox, it is probably a known, recorded gap.
