@@ -1,0 +1,136 @@
+# Change detection for the whole pipeline.
+#
+# Everything downstream is path-filtered off this one job. Running the full matrix on a
+# README edit is not just slow; it teaches people that a red check is probably unrelated to
+# their change, which is the beginning of the end for any pipeline.
+#
+# The filters are deliberately conservative in one direction: anything that could plausibly
+# affect a build is treated as affecting it. A missed filter produces a broken main branch,
+# while an over-broad one only costs minutes.
+name: Changes
+
+on:
+  workflow_call:
+    outputs:
+      java:
+        description: Any Java source, build logic, or dependency declaration changed.
+        value: ${{ jobs.detect.outputs.java }}
+      web:
+        description: The Next.js frontend changed.
+        value: ${{ jobs.detect.outputs.web }}
+      docker:
+        description: An image definition or the scripts that gate images changed.
+        value: ${{ jobs.detect.outputs.docker }}
+      compose:
+        description: The local runtime contract changed.
+        value: ${{ jobs.detect.outputs.compose }}
+      ci:
+        description: The pipeline changed, which means every filter is untrustworthy.
+        value: ${{ jobs.detect.outputs.ci }}
+      services:
+        description: JSON array of the services whose sources changed, for the build matrix.
+        value: ${{ jobs.detect.outputs.services }}
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect
+    runs-on: ubuntu-latest
+    outputs:
+      java: ${{ steps.filter.outputs.java }}
+      web: ${{ steps.filter.outputs.web }}
+      docker: ${{ steps.filter.outputs.docker }}
+      compose: ${{ steps.filter.outputs.compose }}
+      ci: ${{ steps.filter.outputs.ci }}
+      services: ${{ steps.matrix.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # On a push to main there is no base ref to diff against in the usual way; the
+          # action falls back to the previous commit, which is what a squash-merge makes
+          # correct here.
+          filters: |
+            shared: &shared
+              - 'gradle/**'
+              - 'build-logic/**'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle.properties'
+              - 'gradlew'
+              - 'config/**'
+            java:
+              - *shared
+              - 'services/**'
+            web:
+              - 'web/**'
+            docker:
+              - 'docker/**'
+              - 'scripts/**'
+            compose:
+              - 'compose.yaml'
+              - 'tools/**'
+              - 'Makefile'
+            ci:
+              - '.github/workflows/**'
+            gateway:
+              - *shared
+              - 'services/gateway/**'
+              - 'services/contracts/**'
+              - 'services/platform-aws/**'
+            user-service:
+              - *shared
+              - 'services/user-service/**'
+              - 'services/contracts/**'
+              - 'services/platform-aws/**'
+            tweet-service:
+              - *shared
+              - 'services/tweet-service/**'
+              - 'services/contracts/**'
+              - 'services/platform-aws/**'
+            timeline-service:
+              - *shared
+              - 'services/timeline-service/**'
+              - 'services/contracts/**'
+              - 'services/platform-aws/**'
+            fanout-worker:
+              - *shared
+              - 'services/fanout-worker/**'
+              - 'services/contracts/**'
+              - 'services/platform-aws/**'
+
+      - name: Build the image matrix
+        id: matrix
+        env:
+          # A change to the Dockerfile, to the scripts that gate images, or to the pipeline
+          # itself invalidates every per-service filter, so the matrix becomes all of them.
+          # Without this, editing the Dockerfile would build nothing and prove nothing.
+          REBUILD_ALL: ${{ steps.filter.outputs.docker == 'true' || steps.filter.outputs.ci == 'true' }}
+          CHANGED: >-
+            ${{ steps.filter.outputs.gateway }}
+            ${{ steps.filter.outputs.user-service }}
+            ${{ steps.filter.outputs.tweet-service }}
+            ${{ steps.filter.outputs.timeline-service }}
+            ${{ steps.filter.outputs.fanout-worker }}
+        run: |
+          set -euo pipefail
+          all='["gateway","user-service","tweet-service","timeline-service","fanout-worker"]'
+          if [[ "${REBUILD_ALL}" == "true" ]]; then
+            echo "services=${all}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          read -ra flags <<< "${CHANGED}"
+          names=(gateway user-service tweet-service timeline-service fanout-worker)
+          selected=()
+          for i in "${!names[@]}"; do
+            [[ "${flags[$i]:-false}" == "true" ]] && selected+=("\"${names[$i]}\"")
+          done
+          if [[ ${#selected[@]} -eq 0 ]]; then
+            echo 'services=[]' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'services=[%s]\n' "$(IFS=,; echo "${selected[*]}")" >> "${GITHUB_OUTPUT}"
+          fi

@@ -1,0 +1,346 @@
+# The pipeline.
+#
+# One workflow, so that a pull request shows one answer rather than nine independently-red
+# checks whose relationship nobody can reconstruct. Jobs are path-filtered off `changes`
+# and skip cleanly; the final `verdict` job is the single required check, and it fails if
+# anything it depends on failed *or was cancelled*, which a plain `needs:` does not.
+#
+# What is deliberately NOT here: deployment. Nothing in this file touches AWS. Promotion is
+# ArgoCD's job (Phase 7) and provisioning is Terraform's (Phases 8-9); a CI pipeline that
+# also deploys is how a test failure becomes an outage.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on a branch, but never on main -- a main run produces the SBOM and
+# the signature for a commit that is already merged, and cancelling it leaves a released
+# artefact unattested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    uses: ./.github/workflows/changes.yml
+
+  # --------------------------------------------------------------------------
+  # Fast feedback. These run on every change that touches code, and they are
+  # the checks most likely to fail, so they come first and independently.
+  # --------------------------------------------------------------------------
+
+  java:
+    name: Java
+    needs: changes
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Only main writes the cache. A pull request that can poison the cache read by
+          # main is a supply-chain hole, and a fork PR cannot write it anyway.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          validate-wrappers: true
+
+      # One invocation, and `build` rather than a split fast/slow pair. The split is
+      # tempting -- a red "Unit tests" reads very differently from a red "Integration
+      # tests" -- but the coverage gate in twitterclone.java-conventions deliberately counts
+      # both suites together, so `check` depends on `integrationTest` regardless. Splitting
+      # would therefore run the Testcontainers suite twice, once in each job, to buy a
+      # nicer job name. The task name in the failure output already carries that signal.
+      #
+      # Docker is present on the runner, which is what the LocalStack and PostgreSQL
+      # containers need; no service containers are declared because Testcontainers manages
+      # its own lifecycle and a declared service would be a second, divergent definition of
+      # the same dependency.
+      - run: ./gradlew build
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-reports
+          path: |
+            services/*/build/reports/**
+            services/*/build/test-results/**
+          retention-days: 7
+          if-no-files-found: ignore
+
+  web:
+    name: Web
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `npm ci` and not `npm install`: the lockfile is the input, and a job that is allowed
+      # to resolve a different tree than a developer did is not testing what ships.
+      - run: npm ci
+      - run: npm run lint
+      # `next build` type-checks the whole tsconfig include, which covers the Playwright
+      # specs as well -- so a spec that no longer compiles against the app's own types fails
+      # here, in seconds, rather than in the e2e job twenty minutes later.
+      - run: npm run build
+
+  # --------------------------------------------------------------------------
+  # Security. Independent of the build, because a secret in the history or a
+  # vulnerable dependency matters whether or not the code compiles.
+  # --------------------------------------------------------------------------
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, so a shallow clone would only ever find a secret
+          # committed in the last commit -- which is the one case a pre-commit hook already
+          # catches.
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    needs: changes
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # The matrix is computed rather than literal so that a frontend-only change does not
+        # pay for a full Java database build, which is the expensive half. A literal matrix
+        # with per-step `if` guards would still spend a runner and still report a green check
+        # for an analysis that never ran -- worse than skipping, because it looks like proof.
+        language: >-
+          ${{ fromJson(
+            (needs.changes.outputs.java == 'true' || needs.changes.outputs.ci == 'true')
+            && (needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true')
+              && '["java-kotlin","javascript-typescript"]'
+            || (needs.changes.outputs.java == 'true'
+              && '["java-kotlin"]'
+            || '["javascript-typescript"]')
+          ) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality over the default: this is a portfolio repository, and the
+          # quality queries catch the class of bug -- unread field, ignored return value --
+          # that a reviewer notices and a default CodeQL run does not.
+          queries: security-and-quality
+
+      - if: matrix.language == 'java-kotlin'
+        run: ./gradlew classes testClasses --no-build-cache
+
+      - if: matrix.language != 'java-kotlin'
+        uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  # --------------------------------------------------------------------------
+  # Images. Built once here and reused by every job that needs them, because
+  # building the same image twice is both slow and a correctness risk: the two
+  # copies can differ, and then the thing that was scanned is not the thing
+  # that was tested.
+  # --------------------------------------------------------------------------
+
+  images:
+    name: Image (${{ matrix.service }})
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - run: ./gradlew :services:${{ matrix.service }}:bootJar
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          # Loaded into the local daemon rather than pushed. Publication happens once, from
+          # main, in release.yml -- a pull request must be able to build and scan an image
+          # without being able to publish one.
+          load: true
+          tags: twitterclone/${{ matrix.service }}:ci
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            JAR_FILE=services/${{ matrix.service }}/build/libs/${{ matrix.service }}.jar
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+      # Runs the image: refreshes the context, opens a real TLS connection, proves the CDS
+      # archive maps and that there is no shell. This is the check the whole jlink approach
+      # depends on -- jdeps cannot see reflective loading, and the AWS SDK is full of it, so
+      # a module set that satisfies the compiler can still produce a container that dies on
+      # its first call.
+      - name: Verify
+        run: ./scripts/image-verify.sh twitterclone/${{ matrix.service }}:ci
+
+      - name: Size gate
+        run: ./scripts/image-report.sh twitterclone/${{ matrix.service }}:ci
+
+      - name: Vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: twitterclone/${{ matrix.service }}:ci
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          # The scan must fail the build. A scan that only reports is a scan nobody reads.
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Publish scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+        continue-on-error: true
+
+  # --------------------------------------------------------------------------
+  # The product, through a browser, against the images. The slowest job and
+  # the last line of defence: every defect found in Phase 4 was invisible to
+  # everything above this point.
+  # --------------------------------------------------------------------------
+
+  e2e:
+    name: End to end
+    needs: changes
+    if: >-
+      needs.changes.outputs.java == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.docker == 'true' ||
+      needs.changes.outputs.compose == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # `make up-app` builds the jars, builds all six images and blocks on
+      # tools/wait-for-stack.sh -- the same readiness definition a developer gets locally.
+      # Nothing about this job is CI-specific, which is the point: a green pipeline and a
+      # working `make up-app` cannot drift apart.
+      - name: Bring the stack up
+        run: make up-app
+
+      - name: Run the suite
+        run: make e2e
+
+      - name: Diagnose a failure
+        if: failure()
+        run: |
+          docker compose --profile app ps
+          docker compose --profile app logs --tail 200 \
+            gateway user-service tweet-service timeline-service fanout-worker web
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report/**
+            web/test-results/**
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --------------------------------------------------------------------------
+
+  verdict:
+    name: CI
+    if: always()
+    needs: [changes, java, web, secrets, codeql, images, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      # The single required check for branch protection. Listing the individual jobs there
+      # instead would make every path-filtered skip look like a missing check and block the
+      # merge -- and adding a job would silently leave it unrequired.
+      #
+      # `changes` is in `needs` deliberately: without it, a failure in change detection
+      # would skip every downstream job, and a verdict that treats skipped as passing would
+      # then report green for a run that tested nothing at all.
+      #
+      # Treating anything other than success-or-skipped as a failure also catches
+      # 'cancelled', which a `needs.x.result == 'success'` chain does not: a cancelled job
+      # is not a passing one.
+      - name: Judge
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          set -euo pipefail
+          echo "job results: ${RESULTS}"
+          for r in ${RESULTS}; do
+            case "${r}" in
+              success|skipped) ;;
+              *) echo "::error::a required job reported '${r}'"; exit 1 ;;
+            esac
+          done
+          echo "all required jobs passed or were skipped."

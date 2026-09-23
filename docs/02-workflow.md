@@ -47,8 +47,13 @@ that costs nothing.
 ## 3. CI on a pull request
 
 A `changes` job (`dorny/paths-filter`) determines which services a PR touches and feeds a
-matrix into the reusable `service-ci.yml` workflow. A one-service change does not pay for
-six builds.
+matrix into the image jobs of `ci.yml`. A one-service change does not pay for five builds.
+
+Everything lives in one workflow, and branch protection requires exactly one check — the
+terminal `CI` job. Requiring the individual jobs instead would make every path-filtered
+skip look like a missing check and block the merge, and would leave any newly added job
+silently unrequired. The `CI` job treats `success` and `skipped` as passing and everything
+else — including `cancelled` — as failing, which a bare `needs:` chain does not.
 
 | Stage | Tool | Gate |
 |-------|------|------|
@@ -62,6 +67,9 @@ six builds.
 | Image build | Buildx with GHA layer cache | blocking |
 | SBOM | Syft → CycloneDX artefact | report only |
 | Image scan | Trivy | blocking on **fixable** HIGH/CRITICAL |
+| Image smoke test | `scripts/image-verify.sh` against the built image | blocking |
+| Image size | `scripts/image-report.sh` vs `docker/image-budgets.txt` | blocking |
+| End-to-end | Playwright against the built images via compose | blocking |
 | IaC | `terraform fmt`, `validate`, tflint, **Checkov** | blocking |
 | IaC tests | `terraform test` with `mock_provider` | blocking |
 | Plan | `terraform plan` per environment → PR comment | blocking on error |
@@ -84,6 +92,21 @@ the part of this system most likely to be subtly wrong
 The 70% coverage threshold is deliberately modest. It is a floor against untested
 additions, not a target to game.
 
+**End-to-end tests run on pull requests, not only on `main`.** This reverses the original
+decision, and the reversal is worth recording. The argument for main-only was cost: the job
+takes around ten minutes and the marginal signal looked small. Phase 4 disproved that.
+Building the suite found three defects that every other gate had passed: a session cookie
+marked `Secure` on a plaintext origin, so login silently did not persist; a server action
+that revalidated one route out of three, so a like button lied about its own state; and
+`likedByMe` never populated on any listing. Unit tests, integration tests, contract tests,
+the image smoke test and the size gate were all green throughout. Nothing short of a real
+browser against the real images could see any of it, because every one of those bugs lived
+in the seam *between* components that were each individually correct.
+
+So the job runs, but path-filtered: a documentation or ADR change does not pay for it. It
+runs `make up-app` and `make e2e` — the same two commands a developer runs locally,
+deliberately, so that a green pipeline and a working local stack cannot drift apart.
+
 ---
 
 ## 4. Merge to main
@@ -98,8 +121,10 @@ That third step is the entire handoff. CI's responsibility ends at a commit; it 
 cluster credentials and no `kubectl`. A compromised workflow can push an image and open a
 PR — it cannot deploy.
 
-Playwright end-to-end tests run against docker compose on `main` only. They are slow and
-would tax every PR for little marginal signal.
+Until the AWS account exists (Phase 8), `publish.yml` pushes to **GHCR** instead of ECR.
+It is a true stand-in rather than a shortcut: same OCI registry semantics, same cosign
+keyless signature, same CycloneDX SBOM attached to the digest as a referrer. Switching is
+a registry host and a login step. Step 3 lands in Phase 7, with the manifests it edits.
 
 ---
 
