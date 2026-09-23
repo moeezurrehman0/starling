@@ -3,3 +3,13 @@
 *
 !services/*/build/libs/*.jar
 !docker/jlink-modules.txt
+
+# docker/Dockerfile.web builds from this same root context, so the frontend
+# sources have to be readmitted. Its own build output and installed modules are
+# then excluded again: the image runs `npm ci` and `next build` itself, and
+# copying a host-built .next in would let a stale local build ship.
+!web/**
+web/node_modules/**
+web/.next/**
+web/playwright-report/**
+web/test-results/**
