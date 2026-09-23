@@ -117,6 +117,16 @@ logs-app: ## Tail the application containers
 wait: ## Block until the application stack answers
 	./tools/wait-for-stack.sh
 
+.PHONY: e2e
+e2e: ## Run the Playwright suite against the running stack (ARGS=... passes flags through)
+	@# Deliberately depends on nothing. The suite asserts against a stack built from the
+	@# images, and making this target build one would hide the case that matters: an image
+	@# that is stale relative to the source. Run `make up-app` first, on purpose.
+	./tools/e2e.sh $(ARGS)
+
+.PHONY: e2e-full
+e2e-full: up-app e2e ## Build, start and then exercise the whole product end to end
+
 .PHONY: down-hard
 down-hard: ## Stop the local stack and delete its volumes
 	@# The supported way back to empty tables. DynamoDB cannot alter a key schema in place,
