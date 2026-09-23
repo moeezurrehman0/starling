@@ -54,10 +54,18 @@ image: ## Build the jlink+CDS distroless image for SERVICE=<name>
 	  --build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
 	  -t $(IMAGE) .
 
+WEB_IMAGE := twitterclone/web:$(IMAGE_TAG)
+
+.PHONY: image-web
+image-web: ## Build the distroless Node image for the Next.js frontend
+	docker build -f docker/Dockerfile.web \
+	  --build-arg GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo dev) \
+	  --build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+	  -t $(WEB_IMAGE) .
+
 .PHONY: image-verify
 image-verify: ## Smoke-test the BUILT IMAGE, not the Gradle classpath
 	./scripts/image-verify.sh $(IMAGE)
-
 .PHONY: image-report
 image-report: ## Size report and gates; BASELINE=<image> enables the warm-pull gate
 	./scripts/image-report.sh $(IMAGE) $(BASELINE)

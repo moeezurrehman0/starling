@@ -1,0 +1,141 @@
+# ---------------------------------------------------------------------------
+# The Next.js frontend, on a distroless Node runtime.
+#
+# The JVM services are packaged by docker/Dockerfile via jlink + CDS. This file
+# is the Node equivalent of the same idea: build with a full toolchain, ship a
+# runtime that contains no shell, no package manager and no build tooling.
+#
+# Build context is the repository root, matching the JVM image, so both are
+# driven the same way from the Makefile:
+#
+#   docker build -f docker/Dockerfile.web -t twitterclone/web:dev .
+#
+# Use `make image-web`.
+#
+# No `# syntax=` directive, deliberately. It makes every build resolve and pull
+# the dockerfile frontend image from Docker Hub before it does anything else,
+# which hangs for minutes on a restricted network and fails outright on an
+# offline one. Nothing here needs a feature newer than the built-in frontend.
+# ---------------------------------------------------------------------------
+
+ARG NODE_IMAGE=node:22-alpine
+# distroless/nodejs22 ships the node binary, glibc-equivalent runtime deps and
+# ca-certificates, and nothing else — no npm, no shell, no busybox. There is no
+# "nodejs25" tag; 22 is the current LTS line distroless publishes.
+ARG RUNTIME_BASE=gcr.io/distroless/nodejs22-debian12:nonroot
+
+
+# --- Stage 1: dependencies --------------------------------------------------
+# Separated from the build so that editing a page does not reinstall 300
+# packages. Only the two lockfile-adjacent files land in this layer, so the
+# cache survives every change that is not a dependency change.
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /app
+COPY web/package.json web/package-lock.json ./
+# `npm ci`, never `npm install`: ci fails when the lockfile disagrees with
+# package.json rather than quietly resolving a different tree, which is the
+# only way a build is reproducible. --ignore-scripts blocks arbitrary code
+# execution from a transitive postinstall hook during the build.
+RUN npm ci --ignore-scripts --no-audit --no-fund
+
+
+# --- Stage 2: build ---------------------------------------------------------
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY web/ ./
+# NEXT_TELEMETRY_DISABLED stops the build phoning home; a build step that makes
+# a network call it does not need is a build step that fails behind a proxy.
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production
+# next.config.ts sets typescript.ignoreBuildErrors=false and
+# eslint.ignoreDuringBuilds=false, so a type error or a lint error fails here
+# rather than shipping. This is the frontend's -Werror.
+RUN npm run build \
+ && test -f .next/standalone/server.js
+
+
+# --- Stage 3: runtime image -------------------------------------------------
+FROM ${RUNTIME_BASE}
+
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=1970-01-01T00:00:00Z
+ARG RUNTIME_BASE
+
+LABEL org.opencontainers.image.title="twitterclone-web" \
+      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.opencontainers.image.base.name="${RUNTIME_BASE}"
+
+WORKDIR /app
+
+# Three copies, least to most volatile. `standalone` already contains the
+# pruned node_modules that Next's build trace proved are reachable, which is
+# why nothing is installed in this stage.
+#
+# `static` and `public` are NOT inside standalone and must be copied
+# separately — omitting them produces a server that boots, answers, and serves
+# every page without CSS or client JavaScript. It is the single most common
+# way this image is built wrong, and it fails silently.
+COPY --from=build /app/public            ./public
+COPY --from=build /app/.next/static      ./.next/static
+COPY --from=build /app/.next/standalone  ./
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+# HOSTNAME=0.0.0.0 is load-bearing. The standalone server binds localhost by
+# default, which works when exec'd into and fails every readiness probe.
+
+USER nonroot
+EXPOSE 3000
+
+# No shell in the image, so this is exec form against the distroless
+# entrypoint, which is `node` itself — hence the bare script path.
+CMD ["server.js"]
+
+
+# --- Stage 4: documented fallback ------------------------------------------
+# Identical contents on an Alpine Node base, selected with `--target fallback`.
+#
+# It exists for two reasons. The first is the same one the JVM Dockerfile gives
+# for keeping its fallback compiled rather than commented: an untested fallback
+# is not a fallback. The second is concrete — gcr.io is unreachable from some
+# corporate networks, and on those machines stage 3 hangs on
+# `load metadata for gcr.io/...` with no error at all, because a blocked
+# registry looks exactly like a slow one. Anyone hitting that can build this
+# instead and keep working.
+#
+# The trade is real and is why it is not the default: this base carries a
+# shell, a package manager and roughly 50 MB of userland, so a container escape
+# has tools to hand and the CVE surface is the whole distribution rather than
+# libc and the node binary.
+FROM ${NODE_IMAGE} AS fallback
+
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=1970-01-01T00:00:00Z
+
+LABEL org.opencontainers.image.title="twitterclone-web" \
+      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.opencontainers.image.base.name="node:22-alpine"
+
+WORKDIR /app
+COPY --from=build /app/public            ./public
+COPY --from=build /app/.next/static      ./.next/static
+COPY --from=build /app/.next/standalone  ./
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# The `node` user ships with the image at uid 1000. Reusing it avoids an
+# adduser layer and keeps the container off uid 0.
+USER node
+EXPOSE 3000
+
+ENTRYPOINT ["node", "server.js"]
