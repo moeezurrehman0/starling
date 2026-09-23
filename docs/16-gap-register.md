@@ -110,6 +110,82 @@ the design they replace, and access patterns that must now be right the first ti
 
 ---
 
+## Gaps inside the product
+
+The register above is about the *platform*. These are gaps in the *application* — places
+where the running system is knowingly less than the design describes. They are listed here
+rather than in an issue tracker because the same rule applies: a gap that is not written
+down is a gap that gets demonstrated by accident.
+
+| # | Gap | What actually happens | Why it was accepted | What closing it costs |
+|---|---|---|---|---|
+| P1 | **No backfill when you follow someone** | Fan-out is write-time: `FanoutService` resolves the follower set at post time. Following a non-celebrity author therefore delivers none of their existing posts to your home timeline — it starts from their *next* one. | The read-time merge path already exists, but only for celebrities. Extending it to "authors followed in the last N hours" is a second merge with its own cache key, and the e2e suite can only observe the defect if the specs are written in the right order (see the comment above the follow spec in `web/e2e/product.spec.ts`). | A bounded backfill job on the follow event, or widening the read-time merge. The first is a new consumer; the second changes the hot read path. |
+| P2 | **A deleted tweet stays in the search index** | `SearchIndex.remove` exists, is correct and is covered by two integration tests. Nothing calls it. `TweetService.delete` removes the DynamoDB item and returns. | Search is a derived store fed by a stream consumer; deletion is the one mutation the current consumer does not carry. The index is rebuildable by scanning DynamoDB, so this is inconsistency, not data loss. | Emit a delete event and handle it in the indexer. Cheap — the method is already written and tested. |
+| P3 | **Like rows outlive the tweet they liked** | Deleting a tweet leaves its `LIKE#` items behind. They are unreachable through any read path, so nothing renders wrong, but they accumulate. | A transactional multi-item delete across an unbounded set is not a single DynamoDB transaction, and the alternative — a scan on the delete path — is worse than the leak. | A TTL on like rows, or a reconciliation sweep. TTL is the DynamoDB-idiomatic answer and costs one attribute. |
+
+Two candidates were investigated and are **not** gaps. Stream-reading logic is already
+shared: `StreamReader`, `StreamArns`, `StreamRecords` and `StreamCheckpoints` live in
+`services/platform-aws` and both consumers use them. And the like counter is not
+eventually-consistent-by-accident — the mismatch window is handled explicitly in
+`TweetService`, with the reasoning in the comment there.
+
+---
+
+## Silent-failure classes found while building
+
+Every gate in this repository was green while each of the following was broken. That is
+the useful part: not the individual bug, but the *class* — the reason the existing controls
+could not see it, and the control that now can.
+
+**1. Boot 4 split every auto-configuration into its own module.** A `spring.flyway.*` block
+with no `spring-boot-flyway` on the classpath is not an error; it is inert. Migrations
+simply never ran, and the service started healthy. Symmetrically, a dependency nobody uses
+is not free: a leftover `spring-boot-data-redis` auto-configured a health indicator against
+`localhost:6379` and held a service permanently unready. *Control:* treat any
+`spring.<tech>.*` block as unproven until the matching `spring-boot-<tech>` jar is
+confirmed, and read the startup log for the auto-configuration report rather than trusting
+that configuration implies behaviour.
+
+**2. Spring Security evaluates the ERROR dispatch.** An unhandled 500 inside a `permitAll`
+endpoint is re-dispatched, re-filtered, and delivered to the client as **401**. Every
+diagnosis that followed was therefore wrong by construction — the visible symptom pointed at
+authentication and the cause was a null pointer. *Control:* all four `SecurityConfig`s now
+permit the ERROR dispatch explicitly, and the e2e suite asserts on rendered pages rather
+than status codes, so a masked 500 shows up as a missing element.
+
+**3. Relaxed binding silently discards map keys containing `/`.** The gateway's route map
+bound to an empty map, so every route 404'd, with no warning anywhere. Keys must be
+bracketed: `"[/v1/tweets]"`. *Control:* the route map is asserted non-empty at startup.
+
+**4. `secure: NODE_ENV === 'production'` is a trap, not a best practice.** Every image runs
+a production *build*, but "built for production" is not "served over TLS". The browser
+discarded the session cookie on a plaintext origin — and Next reflects a just-written cookie
+within the same request, so the post-login redirect still rendered signed-in and only the
+*next* page load was signed out. Nothing was logged, by anyone. *Control:* `Secure` now
+defaults on and requires an explicit `SESSION_COOKIE_SECURE=false` to disable, so the
+insecure case is a deliberate, greppable statement in `compose.yaml`.
+
+**5. A green unit suite says nothing about seams.** Three Phase 4 defects — the cookie
+above, a server action revalidating one route of three, and `likedByMe` never populated on
+any listing — lived entirely between components that were each individually correct.
+Contract tests, integration tests, the image smoke test and the size gate were all green
+throughout. *Control:* Playwright against the built images, on pull requests, not just on
+main ([docs/02-workflow.md §3](02-workflow.md)).
+
+**6. `jdeps` cannot see reflection, and the AWS SDK is full of it.** A jlink module set
+that satisfies the compiler can still produce a container that dies on its first call —
+classically on `jdk.crypto.ec`, which fails *only* against ECDHE peers, which is to say only
+against real AWS. *Control:* `scripts/image-verify.sh` runs the actual container and forces
+a live TLS handshake to an AWS endpoint, and CI runs it on every built image. Testing the
+Gradle classpath would prove nothing, because that classpath is a full JDK.
+
+**7. LocalStack init hooks run only on a fresh volume.** A changed bootstrap script appears
+to work, because the tables from the previous run are still there. *Control:* `make tables`
+re-runs the bootstrap idempotently against a live container, so the script is exercised on
+every invocation rather than once per volume lifetime.
+
+---
+
 ## Maintenance
 
 This register is only worth having if it stays true.
@@ -118,5 +194,7 @@ This register is only worth having if it stays true.
   request.
 - Any row whose "how the repo proves it" column names an artefact that does not exist is
   a bug, not a plan.
+- A product gap (`P*`) is closed by deleting its row, not by editing it to describe a
+  workaround.
 - Phase 6 rewrites the presumed rows; Phase 14 reviews the whole table before the final
   demo.
