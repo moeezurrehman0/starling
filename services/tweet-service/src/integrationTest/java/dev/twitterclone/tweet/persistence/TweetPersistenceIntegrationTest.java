@@ -61,7 +61,7 @@ class TweetPersistenceIntegrationTest {
     enhanced = DynamoDbEnhancedClient.builder().dynamoDbClient(client).build();
 
     tweets = new TweetRepository(enhanced.table("tweets", TableSchemas.TWEET), enhanced, client);
-    likes = new LikeRepository(enhanced.table("likes", TableSchemas.LIKE));
+    likes = new LikeRepository(enhanced.table("likes", TableSchemas.LIKE), enhanced);
     idempotency =
         new IdempotencyRepository(enhanced.table("idempotency", TableSchemas.IDEMPOTENCY));
   }
@@ -296,6 +296,43 @@ class TweetPersistenceIntegrationTest {
 
       assertThat(likes.likedAt(tweetId, userId)).isPresent();
       assertThat(likes.likedAt(tweetId, userId).orElseThrow()).isAfter(before);
+    }
+
+    @Test
+    @DisplayName("a batch lookup reports only this user's likes among a page of tweets")
+    void likedAmong() {
+      String userId = Ids.newId();
+      String other = Ids.newId();
+      String likedOne = Ids.newId();
+      String likedTwo = Ids.newId();
+      String notLiked = Ids.newId();
+      String likedBySomeoneElse = Ids.newId();
+
+      likes.like(likedOne, userId);
+      likes.like(likedTwo, userId);
+      likes.like(likedBySomeoneElse, other);
+
+      assertThat(
+              likes.likedAmong(List.of(likedOne, likedTwo, notLiked, likedBySomeoneElse), userId))
+          .containsExactlyInAnyOrder(likedOne, likedTwo);
+    }
+
+    @Test
+    @DisplayName("a batch lookup of nothing asks DynamoDB nothing")
+    void likedAmongEmpty() {
+      // BatchGetItem rejects an empty request, so the short-circuit is load-bearing rather
+      // than an optimisation: a page with no tweets on it is perfectly ordinary.
+      assertThat(likes.likedAmong(List.of(), Ids.newId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a batch lookup refuses more keys than DynamoDB accepts")
+    void likedAmongTooMany() {
+      List<String> tooMany = java.util.stream.Stream.generate(Ids::newId).limit(101).toList();
+
+      assertThatThrownBy(() -> likes.likedAmong(tooMany, Ids.newId()))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("101");
     }
 
     @Test

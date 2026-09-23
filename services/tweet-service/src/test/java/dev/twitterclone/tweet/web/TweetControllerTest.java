@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -273,6 +274,54 @@ class TweetControllerTest {
         .andExpect(status().isOk());
 
     verify(tweets).byAuthor(eq(CALLER), eq(Optional.empty()), eq(50));
+  }
+
+  @Test
+  @DisplayName("an author's page tells a signed-in reader which of the tweets they have liked")
+  void byAuthorReportsLikeState() throws Exception {
+    when(tweets.byAuthor(eq(CALLER), any(), anyInt()))
+        .thenReturn(
+            new TweetRepository.TweetPage(
+                List.of(tweet("a", CALLER), tweet("b", CALLER)), Optional.empty()));
+    when(tweets.likedAmong(List.of("a", "b"), CALLER)).thenReturn(Set.of("b"));
+
+    mvc.perform(get("/v1/tweets/by-author/" + CALLER).with(jwt().jwt(j -> j.subject(CALLER))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].likedByMe").value(false))
+        .andExpect(jsonPath("$.items[1].likedByMe").value(true));
+
+    // One batch lookup for the page, not one point read per row.
+    verify(tweets).likedAmong(List.of("a", "b"), CALLER);
+    verify(tweets, never()).hasLiked(any(), any());
+  }
+
+  @Test
+  @DisplayName("an author's page tells an anonymous reader nothing about likes")
+  void byAuthorOmitsLikeStateWhenAnonymous() throws Exception {
+    when(tweets.byAuthor(eq(CALLER), any(), anyInt()))
+        .thenReturn(new TweetRepository.TweetPage(List.of(tweet("a", CALLER)), Optional.empty()));
+
+    // Absent, not false: an anonymous caller has no like state, and saying "false" would
+    // assert one. The client renders an outline heart either way but must not treat a
+    // subsequent click as an unlike.
+    mvc.perform(get("/v1/tweets/by-author/" + CALLER))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].likedByMe").doesNotExist());
+
+    verify(tweets, never()).likedAmong(any(), any());
+  }
+
+  @Test
+  @DisplayName("a batch read reports like state for the signed-in caller")
+  void byIdsReportsLikeState() throws Exception {
+    when(tweets.byIds(List.of("a", "b")))
+        .thenReturn(Map.of("a", tweet("a", CALLER), "b", tweet("b", CALLER)));
+    when(tweets.likedAmong(List.of("a", "b"), CALLER)).thenReturn(Set.of("a"));
+
+    mvc.perform(get("/v1/tweets").param("ids", "a", "b").with(jwt().jwt(j -> j.subject(CALLER))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.a.likedByMe").value(true))
+        .andExpect(jsonPath("$.items.b.likedByMe").value(false));
   }
 
   @Test

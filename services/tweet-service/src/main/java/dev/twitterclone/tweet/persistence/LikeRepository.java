@@ -3,12 +3,19 @@ package dev.twitterclone.tweet.persistence;
 
 import dev.twitterclone.contracts.LikeItem;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
+import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.BatchGetItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
+import software.amazon.awssdk.enhanced.dynamodb.model.ReadBatch;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
@@ -21,10 +28,15 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 @Repository
 public class LikeRepository {
 
-  private final DynamoDbTable<LikeItem> likes;
+  /** DynamoDB's hard limit on keys in one {@code BatchGetItem}. */
+  private static final int MAX_BATCH = 100;
 
-  public LikeRepository(DynamoDbTable<LikeItem> likesTable) {
+  private final DynamoDbTable<LikeItem> likes;
+  private final DynamoDbEnhancedClient enhanced;
+
+  public LikeRepository(DynamoDbTable<LikeItem> likesTable, DynamoDbEnhancedClient enhanced) {
     this.likes = likesTable;
+    this.enhanced = enhanced;
   }
 
   /**
@@ -76,6 +88,43 @@ public class LikeRepository {
    */
   public boolean hasLiked(String tweetId, String userId) {
     return likes.getItem(Key.builder().partitionValue(tweetId).sortValue(userId).build()) != null;
+  }
+
+  /**
+   * Which of these tweets one user has liked.
+   *
+   * <p>A page of tweets needs this for every row, and asking {@link #hasLiked} once per row is the
+   * classic N+1: twenty sequential round trips to render one screen, each one a chance to be slow.
+   * One {@code BatchGetItem} is a single request no matter the page size.
+   *
+   * <p>Returns the subset that was liked rather than a map over the input, because absence is the
+   * answer for everything else and a {@code Set} cannot be misread as "unknown".
+   *
+   * @param tweetIds the tweets on the page
+   * @param userId the caller
+   * @return the ids the caller has liked, possibly empty, never null
+   */
+  public Set<String> likedAmong(Collection<String> tweetIds, String userId) {
+    List<String> distinct = tweetIds.stream().distinct().toList();
+    if (distinct.isEmpty()) {
+      return Set.of();
+    }
+    if (distinct.size() > MAX_BATCH) {
+      throw new IllegalArgumentException(
+          "BatchGetItem accepts at most " + MAX_BATCH + " keys, got " + distinct.size());
+    }
+
+    ReadBatch.Builder<LikeItem> batch =
+        ReadBatch.builder(LikeItem.class).mappedTableResource(likes);
+    distinct.forEach(
+        id -> batch.addGetItem(Key.builder().partitionValue(id).sortValue(userId).build()));
+
+    return enhanced
+        .batchGetItem(BatchGetItemEnhancedRequest.builder().readBatches(batch.build()).build())
+        .resultsForTable(likes)
+        .stream()
+        .map(LikeItem::tweetId)
+        .collect(Collectors.toUnmodifiableSet());
   }
 
   /**

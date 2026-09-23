@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -147,7 +148,8 @@ public class TweetController {
    * @return those that still exist, keyed by id
    */
   @GetMapping("/tweets")
-  public Api.TweetBatch byIds(@RequestParam List<String> ids) {
+  public Api.TweetBatch byIds(
+      @RequestParam List<String> ids, @AuthenticationPrincipal @Nullable Jwt principal) {
     if (ids.size() > MAX_BATCH) {
       throw new IllegalArgumentException("At most " + MAX_BATCH + " ids per request");
     }
@@ -155,11 +157,12 @@ public class TweetController {
     // Iterating the requested ids rather than the returned map preserves the caller's order,
     // which is the timeline order. BatchGetItem makes no ordering guarantee at all.
     Map<String, TweetItem> found = tweets.byIds(ids);
+    Set<String> liked = likedAmong(ids, principal);
     ids.forEach(
         id -> {
           TweetItem item = found.get(id);
           if (item != null) {
-            out.put(id, Api.Tweet.of(item, null));
+            out.put(id, Api.Tweet.of(item, likeState(id, liked, principal)));
           }
         });
     return new Api.TweetBatch(out);
@@ -181,12 +184,17 @@ public class TweetController {
   public Api.TweetPage byAuthor(
       @PathVariable String id,
       @RequestParam(required = false) @Nullable String cursor,
-      @RequestParam(defaultValue = "20") int limit) {
+      @RequestParam(defaultValue = "20") int limit,
+      @AuthenticationPrincipal @Nullable Jwt principal) {
 
     TweetRepository.TweetPage page =
         tweets.byAuthor(id, Optional.ofNullable(cursor), Math.clamp(limit, 1, MAX_PAGE));
+    List<String> ids = page.tweets().stream().map(TweetItem::tweetId).toList();
+    Set<String> liked = likedAmong(ids, principal);
     return new Api.TweetPage(
-        page.tweets().stream().map(item -> Api.Tweet.of(item, null)).toList(),
+        page.tweets().stream()
+            .map(item -> Api.Tweet.of(item, likeState(item.tweetId(), liked, principal)))
+            .toList(),
         page.next().orElse(null));
   }
 
@@ -249,6 +257,21 @@ public class TweetController {
     // null, not false, for an anonymous read. False would assert the caller has not liked it,
     // which is not something an anonymous request can be told.
     return principal == null ? null : tweets.hasLiked(tweetId, principal.getSubject());
+  }
+
+  /**
+   * The caller's likes among a page of tweets, in one round trip.
+   *
+   * <p>Empty for an anonymous caller, who has no likes to report; {@link #likeState} turns that
+   * into {@code null} rather than {@code false} so the two stay distinguishable.
+   */
+  private Set<String> likedAmong(List<String> tweetIds, @Nullable Jwt principal) {
+    return principal == null ? Set.of() : tweets.likedAmong(tweetIds, principal.getSubject());
+  }
+
+  private static @Nullable Boolean likeState(
+      String tweetId, Set<String> liked, @Nullable Jwt principal) {
+    return principal == null ? null : liked.contains(tweetId);
   }
 
   private static Optional<String> replyTo(Api.PostTweet request) {
