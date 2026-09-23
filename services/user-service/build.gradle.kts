@@ -15,12 +15,23 @@ dependencies {
     // two can disagree about a stored attribute name and DynamoDB will not object.
     implementation(project(":services:contracts"))
     implementation(libs.findLibrary("boot-webmvc").get())
+    implementation(libs.findLibrary("boot-validation").get())
     implementation(libs.findLibrary("boot-security").get())
+
+    // Pulled in for NimbusJwtEncoder, which is the half of spring-security-oauth2-jose no
+    // other service needs: this is the only service that signs a token. It also brings the
+    // decoder, so the service can verify its own tokens rather than trusting that the
+    // gateway in front of it did -- a service that only works when something else filtered
+    // its traffic is one routing mistake away from being open.
+    implementation(libs.findLibrary("boot-oauth2-resource-server").get())
     libs
         .findBundle("dynamodb")
         .get()
         .get()
         .forEach { implementation(it) }
+
+    testImplementation(libs.findLibrary("boot-webmvc-test").get())
+    testImplementation(libs.findLibrary("security-test").get())
 
     // The integration suite drives the repositories directly rather than through a Spring
     // context, so it needs the same compile-time view of the SDK and the shared contracts that

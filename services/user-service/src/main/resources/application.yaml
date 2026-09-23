@@ -33,3 +33,20 @@ logging:
   structured:
     format:
       console: ecs
+
+twitterclone:
+  jwt:
+    issuer: https://twitterclone.dev
+    # Short because nothing revokes a JWT: a logged-out or banned account keeps working for
+    # exactly this long. The gateway caches the JWKS, so the cost of a short TTL is a refresh
+    # round trip, not a key fetch per request.
+    ttl: 15m
+    # Absent in Tier L, which generates an ephemeral key at startup and says so loudly.
+    # Tiers S and P inject a PEM here from a mounted secret; see the gap register for why
+    # that secret is a Kubernetes Secret in S and an External Secrets reference in P.
+    signing-key: ${JWT_SIGNING_KEY:}
+  dynamodb:
+    # Overridden to LocalStack in Tier L. Empty means the default AWS endpoint for the region,
+    # which is what S and P want -- so the production path is the one with no configuration.
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    table-prefix: ${DYNAMODB_TABLE_PREFIX:}
