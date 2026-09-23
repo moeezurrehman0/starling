@@ -349,6 +349,12 @@ services:
       # The browser never talks to this; it is the server component's own address for the
       # edge. Everything the frontend knows about the backend is this one URL.
       API_BASE: http://gateway:8080
+      # There is no TLS in front of this in Tier L, so the session cookie cannot be Secure or
+      # the browser will discard it -- and discard it silently, in a way that still renders the
+      # post-login page as signed-in. Secure is on by default in the app precisely so that this
+      # has to be stated here rather than inferred from NODE_ENV, which says nothing about
+      # whether an HTTPS front door exists. Tier P sets nothing and therefore gets Secure.
+      SESSION_COOKIE_SECURE: "false"
     depends_on:
       gateway:
         condition: service_started

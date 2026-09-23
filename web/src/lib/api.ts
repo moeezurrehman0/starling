@@ -45,23 +45,35 @@ export class ApiError extends Error {
 interface RequestOptions {
   method?: string;
   body?: unknown;
-  /** Attach the caller's token. Reads of public data deliberately do not. */
+  /** Attach the caller's token, and fail closed without one. For anything that writes. */
   authenticated?: boolean;
+  /**
+   * Attach the caller's token if there is one, and carry on without.
+   *
+   * For reads that are public but answer differently to a known caller -- a profile or a set
+   * of search results, where the tweets are the same either way but `likedByMe` can only be
+   * filled in for someone. Sending the token anonymously is not an option, and omitting it
+   * when signed in silently renders every heart as un-liked, which then makes the next click
+   * an unlike of a tweet the user has not liked yet.
+   */
+  personalised?: boolean;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, authenticated = false } = options;
+  const { method = "GET", body, authenticated = false, personalised = false } = options;
 
   const headers: Record<string, string> = { accept: "application/json" };
   if (body !== undefined) {
     headers["content-type"] = "application/json";
   }
-  if (authenticated) {
+  if (authenticated || personalised) {
     const token = await sessionToken();
-    if (!token) {
+    if (!token && authenticated) {
       throw new ApiError(401, "not signed in");
     }
-    headers.authorization = `Bearer ${token}`;
+    if (token) {
+      headers.authorization = `Bearer ${token}`;
+    }
   }
 
   let response: Response;
@@ -191,6 +203,7 @@ export function tweetsByAuthor(
 ): Promise<Page<Tweet>> {
   return request<Page<Tweet>>(
     `/v1/tweets/by-author/${encodeURIComponent(authorId)}${query({ cursor, limit })}`,
+    { personalised: true },
   );
 }
 

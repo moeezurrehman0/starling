@@ -15,6 +15,23 @@ import { cookies } from "next/headers";
 const COOKIE = "tc_session";
 
 /**
+ * Whether to mark the cookie `Secure`.
+ *
+ * This deliberately does not key off `NODE_ENV`. The production build *is* `NODE_ENV=production`
+ * — that is what `next build` produces and what the image runs — but "built for production" and
+ * "served over TLS" are different facts, and conflating them breaks the moment the production
+ * artefact is run anywhere without an HTTPS front door: Compose, kind, a smoke test in CI. The
+ * failure is silent and very expensive to read. The browser accepts the response, discards the
+ * `Secure` cookie on a plaintext origin, and the redirect that follows still renders signed-in,
+ * because Next reflects a just-written cookie within the same request. So the UI shows a logged-in
+ * user and the very next page load shows a logged-out one, with nothing logged at either end.
+ *
+ * `Secure` therefore defaults to on and has to be turned off explicitly, by a deployment that
+ * knows it has no TLS. Getting it wrong in that direction fails loudly and locally.
+ */
+const SECURE_COOKIE = process.env.SESSION_COOKIE_SECURE !== "false";
+
+/**
  * Persists a freshly issued token.
  *
  * `maxAge` mirrors the token's own lifetime, so the cookie and the credential expire together.
@@ -29,8 +46,7 @@ export async function startSession(
   jar.set(COOKIE, accessToken, {
     httpOnly: true,
     sameSite: "lax",
-    // Off in local http development, on everywhere a TLS-terminating ingress exists.
-    secure: process.env.NODE_ENV === "production",
+    secure: SECURE_COOKIE,
     path: "/",
     maxAge: expiresInSeconds,
   });

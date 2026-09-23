@@ -115,6 +115,14 @@ export async function likeAction(tweetId: string, liked: boolean): Promise<void>
     throw error;
   }
   revalidatePath("/");
+  // Also every profile page and the search results. A like can be clicked from any of the
+  // three, and revalidating only "/" meant the button stayed on "Like" until the user
+  // navigated away and back -- the write had happened, so a second click then sent an unlike.
+  // The bracketed form invalidates the dynamic route rather than one rendered instance, which
+  // is what is wanted here: the action does not know, and should not need to know, whose
+  // profile the click came from.
+  revalidatePath("/u/[handle]", "page");
+  revalidatePath("/search");
 }
 
 export async function followAction(
