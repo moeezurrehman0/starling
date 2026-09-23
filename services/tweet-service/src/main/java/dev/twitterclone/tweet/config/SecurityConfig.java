@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 package dev.twitterclone.tweet.config;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -34,7 +35,17 @@ public class SecurityConfig {
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth
+                auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                    .permitAll()
+                    // The ERROR dispatch above is permitted, and that is a correctness fix
+                    // rather than a convenience. When a handler throws, the container
+                    // re-dispatches to /error, Spring Security evaluates that dispatch too,
+                    // and anyRequest().authenticated() rejects it -- so an unhandled 500
+                    // inside a *public* endpoint reaches the caller as 401. The real fault
+                    // becomes invisible and the reported one is a lie; it cost an afternoon
+                    // once. Matching on the dispatch type rather than permitting the "/error"
+                    // path means a client still cannot request /error directly.
+
                     // Order is the security property here, not decoration. Every rule that
                     // requires a token is stated before the read rules, because a wildcard
                     // permitAll matched first does not produce a 401 -- it produces an

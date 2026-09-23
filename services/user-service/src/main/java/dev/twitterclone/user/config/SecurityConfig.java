@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 package dev.twitterclone.user.config;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -45,7 +46,17 @@ public class SecurityConfig {
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/actuator/health/**", "/actuator/info")
+                auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                    .permitAll()
+                    // The ERROR dispatch above is permitted, and that is a correctness fix
+                    // rather than a convenience. When a handler throws, the container
+                    // re-dispatches to /error, Spring Security evaluates that dispatch too,
+                    // and anyRequest().authenticated() rejects it -- so an unhandled 500
+                    // inside a *public* endpoint reaches the caller as 401. The real fault
+                    // becomes invisible and the reported one is a lie; it cost an afternoon
+                    // once. Matching on the dispatch type rather than permitting the "/error"
+                    // path means a client still cannot request /error directly.
+                    .requestMatchers("/actuator/health/**", "/actuator/info")
                     .permitAll()
                     // Prometheus scrapes in-cluster and the endpoint is not exposed
                     // through the gateway; a NetworkPolicy is what actually restricts

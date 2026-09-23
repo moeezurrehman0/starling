@@ -184,6 +184,12 @@ services:
   # fallback base having busybox. `tools/wait-for-stack.sh` polls from the host instead, which
   # is also what the e2e suite and CI use, so there is exactly one readiness definition.
 
+  # Published host ports are overridable. This is not gratuitous: a shared or corporate
+  # machine very often already has something on 8080, and the failure is a Compose error at
+  # the very end of `up`, after every other container has started. GATEWAY_PORT=18080
+  # make up-app moves it. The container-side ports never change, so nothing inside the
+  # network and nothing in Kubernetes is affected.
+
   user-service:
     profiles: ["app"]
     container_name: tc-user-service
@@ -195,7 +201,7 @@ services:
         JAR_FILE: services/user-service/build/libs/user-service.jar
         RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
     ports:
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${USER_PORT:-8081}:8081"
     environment: &aws-env
       # LocalStack accepts any credentials but the SDK's default provider chain refuses to
       # sign without *some*, failing at first call rather than at startup -- which reads as a
@@ -220,7 +226,7 @@ services:
         JAR_FILE: services/tweet-service/build/libs/tweet-service.jar
         RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
     ports:
-      - "127.0.0.1:8082:8082"
+      - "127.0.0.1:${TWEET_PORT:-8082}:8082"
     environment:
       <<: *aws-env
       SEARCH_DB_URL: jdbc:postgresql://postgres:5432/twitter_search
@@ -253,7 +259,7 @@ services:
         JAR_FILE: services/timeline-service/build/libs/timeline-service.jar
         RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
     ports:
-      - "127.0.0.1:8083:8083"
+      - "127.0.0.1:${TIMELINE_PORT:-8083}:8083"
     environment:
       <<: *aws-env
       REDIS_MAIN_HOST: redis-main
@@ -286,7 +292,7 @@ services:
         JAR_FILE: services/fanout-worker/build/libs/fanout-worker.jar
         RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
     ports:
-      - "127.0.0.1:8084:8084"
+      - "127.0.0.1:${FANOUT_PORT:-8084}:8084"
     environment:
       <<: *aws-env
       FANOUT_ENABLED: "true"
@@ -305,7 +311,7 @@ services:
         JAR_FILE: services/gateway/build/libs/gateway.jar
         RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
     environment:
       REDIS_MAIN_HOST: redis-main
       REDIS_MAIN_PORT: "6379"
@@ -338,7 +344,7 @@ services:
       # changes how the container is started. WEB_TARGET picks the stage.
       target: ${WEB_TARGET:-}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:
       # The browser never talks to this; it is the server component's own address for the
       # edge. Everything the frontend knows about the backend is this one URL.

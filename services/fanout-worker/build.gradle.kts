@@ -24,7 +24,12 @@ dependencies {
     // promise the process cannot keep.
     implementation(libs.findLibrary("boot-webmvc").get())
     implementation(libs.findLibrary("boot-restclient").get())
-    implementation(libs.findLibrary("boot-data-redis").get())
+    // Deliberately no boot-data-redis. This worker reads a DynamoDB stream and writes
+    // timelines; it has never had a line of Redis code. Carrying the starter anyway was not
+    // free: Boot auto-configured a reactive Redis health indicator pointing at the default
+    // localhost:6379, which fails, and a DOWN composite /actuator/health means Kubernetes
+    // never marks the pod ready -- a worker that is running perfectly is removed from
+    // service by a dependency it does not use.
     libs
         .findBundle("dynamodb")
         .get()

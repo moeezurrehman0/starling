@@ -65,6 +65,11 @@ boot-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
 postgresql = { module = "org.postgresql:postgresql" }
 flyway-core = { module = "org.flywaydb:flyway-core" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+# Boot 4 moved every auto-configuration out of spring-boot-autoconfigure and into a module
+# per technology, and spring-boot-starter-jdbc does not pull this one in. Without it Flyway
+# is on the classpath, `spring.flyway.*` binds to nothing, no migration runs and NOTHING is
+# logged -- the first symptom is a missing table at the first query.
+boot-flyway = { module = "org.springframework.boot:spring-boot-flyway" }
 
 # --- Null safety -----------------------------------------------------------
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
@@ -90,7 +95,7 @@ plugin-spotbugs = { module = "com.github.spotbugs:com.github.spotbugs.gradle.plu
 [bundles]
 observability = ["micrometer-prometheus", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
 dynamodb = ["aws-dynamodb", "aws-dynamodb-enhanced", "aws-apache-client"]
-search-persistence = ["boot-jdbc", "postgresql", "flyway-core", "flyway-postgresql"]
+search-persistence = ["boot-jdbc", "postgresql", "boot-flyway", "flyway-core", "flyway-postgresql"]
 testing = ["boot-test", "assertj", "archunit"]
 testcontainers = ["boot-testcontainers", "testcontainers-junit", "testcontainers-postgresql", "testcontainers-localstack"]
 
