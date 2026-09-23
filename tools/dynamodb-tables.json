@@ -25,26 +25,43 @@
     "users": {
       "description": "Profiles and follower state. Read on almost every request, so it is the table whose cache hit rate matters most.",
       "hash_key": "uid",
-      "attributes": { "uid": "S" },
+      "attributes": {
+        "uid": "S"
+      },
       "stream": null,
       "ttl_attribute": null,
       "global_secondary_indexes": {}
     },
-
     "handles": {
       "description": "Uniqueness index over @handle. A registration claims the handle with a conditional PutItem on attribute_not_exists(h); the condition failing IS the duplicate check, which is the only way to get uniqueness without a transaction.",
       "hash_key": "h",
-      "attributes": { "h": "S" },
+      "attributes": {
+        "h": "S"
+      },
       "stream": null,
       "ttl_attribute": null,
       "global_secondary_indexes": {}
     },
-
+    "credentials": {
+      "description": "Password hashes, keyed by the same normalised handle as the handles table.",
+      "$comment": "Owned privately by user-service, which is why it has no schema in services/contracts. UserItem is read by tweet-service and timeline-service to render an author, and a credential stored on it would be shipped to two services that have no business holding one. Splitting the table is what makes that impossible rather than merely discouraged. The cost is a second point read on login only; no other path touches it.",
+      "owner": "user-service",
+      "hash_key": "h",
+      "attributes": {
+        "h": "S"
+      },
+      "stream": null,
+      "ttl_attribute": null,
+      "global_secondary_indexes": {}
+    },
     "tweets": {
       "description": "The authoritative tweet store, and the source of the change stream that drives fan-out and search indexing.",
       "$comment_key": "Keyed on tweetId alone with no sort key, so a permalink is a GetItem rather than a query that would need to know the author. UUIDv7 ids keep the partition spread even though they are time-ordered, because the randomness is in the low bits.",
       "hash_key": "tid",
-      "attributes": { "tid": "S", "aid": "S" },
+      "attributes": {
+        "tid": "S",
+        "aid": "S"
+      },
       "$comment_stream": "NEW_IMAGE, not NEW_AND_OLD_IMAGES: fan-out needs the tweet that was created and nothing about what it replaced, and the old image would roughly double the stream record size for no consumer's benefit. Note the hard ceiling of two readers per shard before throttling -- fanout and search-indexer use both of them, so a third consumer needs a different design, not another reader. See ADR-0012.",
       "stream": "NEW_IMAGE",
       "ttl_attribute": null,
@@ -57,13 +74,15 @@
         }
       }
     },
-
     "follows": {
       "description": "The follow graph, queryable in both directions.",
       "$comment_key": "Base table answers 'who does this user follow' (the timeline read path). The GSI reverses the keys to answer 'who follows this author' (the fan-out path). A celebrity's follower list is one enormous partition in that index, which is precisely why authors above the celebrity threshold are merged at read time instead of being fanned out.",
       "hash_key": "fwr",
       "range_key": "fwe",
-      "attributes": { "fwr": "S", "fwe": "S" },
+      "attributes": {
+        "fwr": "S",
+        "fwe": "S"
+      },
       "stream": null,
       "ttl_attribute": null,
       "global_secondary_indexes": {
@@ -76,45 +95,52 @@
         }
       }
     },
-
     "timelines": {
       "description": "Materialised home timelines, one item per (owner, tweet).",
       "$comment_key": "Sorted by tweetId rather than a timestamp. UUIDv7 is lexicographically ordered by creation time, so the sort key is the id and the table needs no separate time attribute to page by -- which also removes any chance of two tweets in the same millisecond colliding on the sort key.",
       "hash_key": "own",
       "range_key": "tid",
-      "attributes": { "own": "S", "tid": "S" },
+      "attributes": {
+        "own": "S",
+        "tid": "S"
+      },
       "stream": null,
       "$comment_ttl": "Must match TimelineEntryItem.RETENTION and the 'exp' attribute in TableSchemas. DynamoDB ignores a TTL attribute that is not of type N, and does so silently -- the table simply grows forever. TableSchemasTest asserts the type for that reason.",
       "ttl_attribute": "exp",
       "global_secondary_indexes": {}
     },
-
     "likes": {
       "description": "One item per (tweet, liker). Keyed this way so 'who liked this tweet' is a single partition query and a duplicate like is a conditional-put failure rather than a read-then-write race.",
       "hash_key": "tid",
       "range_key": "uid",
-      "attributes": { "tid": "S", "uid": "S" },
+      "attributes": {
+        "tid": "S",
+        "uid": "S"
+      },
       "stream": null,
       "ttl_attribute": null,
       "global_secondary_indexes": {}
     },
-
     "idempotency": {
       "description": "Claimed Idempotency-Key values and the outcome of the request that claimed them.",
       "$comment": "Matters more here than in a typical CRUD service: a retried POST /tweets does not merely duplicate a row, it re-triggers fan-out to every follower.",
       "hash_key": "k",
-      "attributes": { "k": "S" },
+      "attributes": {
+        "k": "S"
+      },
       "stream": null,
       "ttl_attribute": "exp",
       "global_secondary_indexes": {}
     },
-
     "stream_checkpoints": {
       "description": "How far each consumer group has read each shard of the tweets stream.",
       "$comment": "This table exists because the project runs no KCL: the Kinesis Client Library's DynamoDB Streams adapter is built on AWS SDK v1, which is end-of-support and banned here, so lease and checkpoint management is ours to own. See ADR-0012.",
       "hash_key": "cg",
       "range_key": "sh",
-      "attributes": { "cg": "S", "sh": "S" },
+      "attributes": {
+        "cg": "S",
+        "sh": "S"
+      },
       "stream": null,
       "ttl_attribute": null,
       "global_secondary_indexes": {}

@@ -59,6 +59,21 @@ class TableDefinitionsTest {
     return DEFINITIONS.asObject().get("tables").asObject();
   }
 
+  /**
+   * The tables this module is responsible for: every one except those a single service owns.
+   *
+   * <p>A table carrying an {@code owner} is deliberately absent from {@link TableSchemas} -- {@code
+   * credentials} is the first, because putting a password hash on the shared {@link UserItem} would
+   * ship it to two services that never need it. Its schema is cross-checked against this same file
+   * by a test inside the owning service, so the invariant holds on both sides rather than being
+   * dropped for the exception.
+   */
+  private static Map<String, JsonNode> sharedTables() {
+    return tables().entrySet().stream()
+        .filter(entry -> entry.getValue().asObject().get("owner") == null)
+        .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
   /** Every logical table paired with the schema that is supposed to describe it. */
   private static Stream<org.junit.jupiter.params.provider.Arguments> mappedTables() {
     return Stream.of(
@@ -84,7 +99,7 @@ class TableDefinitionsTest {
     // Guards the case the parameterised tests cannot see: a table added to the JSON with no
     // corresponding schema, which would deploy an empty table nothing ever writes to.
     List<String> mapped = mappedTables().map(args -> (String) args.get()[0]).sorted().toList();
-    assertThat(tables().keySet().stream().sorted().toList()).isEqualTo(mapped);
+    assertThat(sharedTables().keySet().stream().sorted().toList()).isEqualTo(mapped);
   }
 
   @ParameterizedTest(name = "{0}")
@@ -182,6 +197,9 @@ class TableDefinitionsTest {
     List<String> allowed =
         List.of(
             "description",
+            // Present only on a table a single service owns privately. Terraform still creates
+            // it; it is contracts that must not claim to describe it.
+            "owner",
             "hash_key",
             "range_key",
             "attributes",
