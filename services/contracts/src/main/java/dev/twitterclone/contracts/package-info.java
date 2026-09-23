@@ -20,6 +20,12 @@
  * ground that makes monorepo modules regrettable. If a class here ever needs a {@code
  * DynamoDbClient}, it belongs in a service instead.
  *
+ * <p>There is one deliberate exception, {@link dev.twitterclone.contracts.Ids}. The precise rule is
+ * therefore: <em>no I/O, no configuration, no Spring, and behaviour only where the behaviour itself
+ * is the cross-service agreement.</em> An id generator qualifies, because the ordering property of
+ * the ids minted in one service is what makes the timeline merge in another service correct; see
+ * that class for why duplicating it would fail silently rather than loudly.
+ *
  * <h2>Why the schemas are hand-written</h2>
  *
  * <p>Every schema is a {@link software.amazon.awssdk.enhanced.dynamodb.mapper.StaticTableSchema}
