@@ -6,8 +6,27 @@
 # ArgoCD app at this chart" a template error instead of a data-loss incident.
 tier: dev
 
+# Two caches, deliberately configured differently. The values mirror compose.yaml
+# exactly; see the comments there and ADR-0013 for why the policies differ.
+#
+# Drift between these and compose is the specific risk: both stacks would work,
+# and Tier L would stop predicting what the sandbox does under memory pressure --
+# which is the only condition where the difference shows up at all.
 redis:
-  image: redis:7.4-alpine
+  image: redis:8.2-alpine
+  main:
+    maxmemory: 256mb
+    # Profiles, timeline fragments and rate-limit counters: all reconstructible,
+    # so evicting the coldest key is correct. Redis defaults to noeviction, which
+    # turns a full cache into write errors on the rate limiter.
+    policy: allkeys-lru
+  celeb:
+    maxmemory: 128mb
+    # A small, bounded, enormously hot working set. LRU is the wrong instinct:
+    # evicting a celebrity's recent-tweet list pushes fan-out-on-read straight
+    # onto DynamoDB for millions of readers at once. volatile-ttl evicts only
+    # keys that already carry an expiry.
+    policy: volatile-ttl
 postgres:
   image: postgres:17-alpine
   db: twitter_search

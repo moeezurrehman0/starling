@@ -164,5 +164,56 @@ for env in "${ENVS[@]}"; do
   done
 done
 
+# The two caches must not be configured identically. They were, briefly: the chart
+# was written with one policy for both, which works perfectly and quietly removes
+# the reason there are two caches at all. The condition where it matters -- memory
+# pressure on a hot celebrity key -- is the one Tier L never reaches, so nothing
+# would have caught it until production.
+#
+# compose.yaml is the source of truth for these values; drift between the two
+# means Tier L stops predicting Tier S.
+# Pull an arg value that follows a flag, from the first N lines after a marker.
+# Helm groups rendered objects by kind, not by the order they appear in the
+# template: both Services come first, then both Deployments. Anchoring on a
+# tier's Service therefore reads forward into the *other* tier's Deployment,
+# which is how this check first reported the celebrity cache as a copy of the
+# main one. The anchor below is the Deployment's matchLabels, six spaces in and
+# unique to the Deployment.
+arg_after() { # file marker flag
+  # The flag must match the whole list item: a loose match on --maxmemory also
+  # hits --maxmemory-policy and returns the policy as the size.
+  awk -v m="$2" 'index($0,m){f=1} f' "$1" \
+    | grep -A1 -E "^[[:space:]]*-[[:space:]]*$3[[:space:]]*$" \
+    | sed -n '2p' | sed 's/^[[:space:]]*-[[:space:]]*//; s/"//g' || true
+}
+
+# The two caches must not be configured identically. They were, briefly: the chart
+# was written with one policy and one size for both, which works perfectly and
+# quietly removes the reason there are two caches at all. The condition where it
+# matters -- memory pressure on a hot celebrity key -- is the one Tier L never
+# reaches, so nothing would have caught it until production.
+#
+# compose.yaml is the source of truth. Drift between the two means Tier L stops
+# predicting Tier S.
+for tier in main celeb; do
+  want_pol="$(arg_after "$ROOT/compose.yaml" "  redis-$tier:" --maxmemory-policy)"
+  want_mem="$(arg_after "$ROOT/compose.yaml" "  redis-$tier:" --maxmemory)"
+  anchor="      app.kubernetes.io/name: redis-$tier"
+  got_pol="$(arg_after /tmp/render-infra.yaml "$anchor" --maxmemory-policy)"
+  got_mem="$(arg_after /tmp/render-infra.yaml "$anchor" --maxmemory)"
+  if [ -z "$want_pol$want_mem" ] || [ -z "$got_pol$got_mem" ]; then
+    bad "redis-$tier — could not read the cache settings from one of the two stacks"
+  elif [ "$want_pol" != "$got_pol" ] || [ "$want_mem" != "$got_mem" ]; then
+    bad "redis-$tier — chart says $got_pol/$got_mem, compose says $want_pol/$want_mem"
+  else
+    ok "redis-$tier — chart matches compose ($got_pol, $got_mem)"
+  fi
+done
+
+if [ "$(arg_after /tmp/render-infra.yaml '      app.kubernetes.io/name: redis-main' --maxmemory-policy)" \
+   = "$(arg_after /tmp/render-infra.yaml '      app.kubernetes.io/name: redis-celeb' --maxmemory-policy)" ]; then
+  bad "both Redis tiers share one eviction policy — the split buys nothing"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

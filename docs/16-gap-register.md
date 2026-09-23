@@ -199,6 +199,47 @@ to work, because the tables from the previous run are still there. *Control:* `m
 re-runs the bootstrap idempotently against a live container, so the script is exercised on
 every invocation rather than once per volume lifetime.
 
+**8. A guard in a `.tpl` file is not a guard.** Helm extracts only `define` blocks from
+`templates/*.tpl`; loose content there is never evaluated. The `dev-infra` chart's
+"never install this outside a disposable cluster" check therefore passed `helm lint`,
+rendered nothing, and protected nothing — a chart of single-replica `emptyDir` databases
+would have installed cleanly into any environment pointed at it. The dangerous property is
+that a *broken* safety control and an *absent* one are indistinguishable from the outside,
+while the broken one also stops anybody looking. *Control:* the guard moved into a `define`
+invoked from every real template, and `scripts/helm-validate.sh` asserts that it **fails** —
+the guard is tested, not just present.
+
+**9. NetworkPolicy is accepted by clusters that cannot enforce it.** kind's default CNI
+implements no policy engine. `kubectl apply` succeeds, `kubectl get networkpolicy` lists the
+object, `kubectl describe` shows the rules — and every packet still flows. A default-deny
+posture that is in fact wide open looks exactly like one that works, and it looks that way
+in precisely the places an engineer would check. *Control:* `deploy/kind/cluster.yaml` sets
+`disableDefaultCNI`, so a cluster cannot be created without an explicit CNI decision, and
+`scripts/kind-up.sh` installs Calico and aborts rather than degrading silently.
+
+**10. Rendering both an HPA and `spec.replicas` is valid, and wrong.** Nothing rejects it:
+both objects pass schema validation and both are legal. Under GitOps the HPA scales up, the
+sync controller reverts the field to the number in Git, and the two oscillate — presenting
+as unexplained pod churn rather than as a manifest error. The same shape of problem appears
+in a `PodDisruptionBudget` whose `minAvailable` equals the replica count, which is a valid
+object that makes `kubectl drain` block forever. *Control:* `scripts/helm-validate.sh`
+checks the rendered output for both, alongside two product-specific invariants (the Redis
+tiers must resolve to different hosts; the stream consumers must be pinned to one replica).
+All four were verified by deliberately breaking them and confirming the suite goes red — an
+assertion nobody has seen fail is an assertion nobody should trust.
+
+**11. A second copy of a configuration is a second source of truth.** The Tier L Helm chart
+and `compose.yaml` both describe the two Redis instances. The chart was written with one
+policy and one size for both — and it worked. Every test passed, the application behaved
+correctly, and the celebrity cache quietly became a duplicate of the ordinary one, which is
+the entire reason the split exists. The condition that distinguishes them is memory pressure
+on a hot key, which Tier L never reaches, so the divergence would have survived until
+production. *Control:* `scripts/helm-validate.sh` reads both files and fails if the eviction
+policy or the size differs between them, and separately fails if the two tiers are
+configured identically. Writing that check immediately found a second bug in the check
+itself: Helm groups rendered objects by kind, so anchoring on a tier's Service reads forward
+into the *other* tier's Deployment, and the assertion compared the main cache to itself.
+
 ---
 
 ## Maintenance

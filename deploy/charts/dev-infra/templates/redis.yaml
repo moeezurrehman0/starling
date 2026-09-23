@@ -41,14 +41,11 @@ spec:
           image: {{ $.Values.redis.image }}
           args:
             - --maxmemory
-            - 128mb
-            # allkeys-lru, not noeviction. A cache that returns OOM on write
-            # under pressure turns a capacity problem into a request failure;
-            # evicting is the behaviour the application is written to tolerate.
+            - {{ (index $.Values.redis $n).maxmemory | quote }}
             - --maxmemory-policy
-            - allkeys-lru
-            - --save
-            - ""
+            - {{ (index $.Values.redis $n).policy | quote }}
+            - --appendonly
+            - "no"
           ports:
             - containerPort: 6379
           readinessProbe:
@@ -56,6 +53,11 @@ spec:
               command: [redis-cli, ping]
             periodSeconds: 5
           resources:
-            requests: {cpu: 50m, memory: 160Mi}
-            limits: {memory: 192Mi}
+            # Headroom above maxmemory: Redis accounts for the dataset, not for
+            # fragmentation, replication buffers or the COW pages a fork leaves
+            # behind. A limit set to maxmemory gets OOM-killed by the kernel long
+            # before Redis ever applies its own eviction policy, so the policy
+            # above would never run.
+            requests: {cpu: 50m, memory: {{ if eq $n "main" }}384Mi{{ else }}224Mi{{ end }}}
+            limits: {memory: {{ if eq $n "main" }}384Mi{{ else }}224Mi{{ end }}}
 {{- end }}
