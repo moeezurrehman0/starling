@@ -4,6 +4,28 @@ spring:
   threads:
     virtual:
       enabled: true
+  # The main tier. Normal-user data, allkeys-lru, evicting the coldest key costs one miss.
+  data:
+    redis:
+      host: ${REDIS_MAIN_HOST:localhost}
+      port: ${REDIS_MAIN_PORT:6379}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${USER_SERVICE_URL:http://localhost:8081}/v1/jwks
+
+twitterclone:
+  # The celebrity tier. Deliberately a separate instance: see config/RedisConfig.
+  redis-celeb:
+    host: ${REDIS_CELEB_HOST:localhost}
+    port: ${REDIS_CELEB_PORT:6380}
+  dynamodb:
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    table-prefix: ${DYNAMODB_TABLE_PREFIX:}
+  timeline:
+    user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
+    tweet-service-url: ${TWEET_SERVICE_URL:http://localhost:8082}
 
 server:
   port: 8083
