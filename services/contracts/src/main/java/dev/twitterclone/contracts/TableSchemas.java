@@ -270,9 +270,15 @@ public final class TableSchemas {
         .addAttribute(
             String.class,
             a ->
-                a.name("rh")
-                    .getter(IdempotencyItem::responseHash)
-                    .setter(IdempotencyItem.Builder::responseHash))
+                a.name("rqh")
+                    .getter(IdempotencyItem::requestHash)
+                    .setter(IdempotencyItem.Builder::requestHash))
+        .addAttribute(
+            String.class,
+            a ->
+                a.name("rid")
+                    .getter(IdempotencyItem::resultId)
+                    .setter(IdempotencyItem.Builder::resultId))
         .addAttribute(
             Integer.class,
             a ->

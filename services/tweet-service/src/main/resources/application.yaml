@@ -1,6 +1,12 @@
 spring:
   application:
     name: tweet-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Fetched and cached, so rotating the key pair in user-service needs no deploy here.
+          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/v1/jwks}
   threads:
     virtual:
       enabled: true
@@ -33,3 +39,15 @@ logging:
   structured:
     format:
       console: ecs
+
+twitterclone:
+  dynamodb:
+    # Tier L only: points the client at LocalStack. Unset everywhere else so the SDK resolves
+    # the real regional endpoint from the instance's credentials.
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    table-prefix: ${DYNAMODB_TABLE_PREFIX:}
+  media:
+    bucket: ${MEDIA_BUCKET:twitterclone-media}
+    endpoint: ${S3_ENDPOINT:}
+    upload-ttl: 10m
+    max-bytes: 5242880

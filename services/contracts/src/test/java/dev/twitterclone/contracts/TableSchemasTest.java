@@ -296,14 +296,35 @@ class TableSchemasTest {
       IdempotencyItem original =
           IdempotencyItem.builder()
               .key("client-key-1")
-              .responseHash("sha256:abc")
+              .requestHash("sha256:abc")
+              .resultId("0193f0a0-0000-7000-8000-0000000000aa")
               .statusCode(201)
               .createdAt(FIXED)
               .expiresAt(FIXED.plus(IdempotencyItem.RETENTION).getEpochSecond())
               .build();
       Map<String, AttributeValue> stored = store(TableSchemas.IDEMPOTENCY, original);
-      assertStoredNames(stored, "k", "rh", "sc", "ca", "exp");
+      assertStoredNames(stored, "k", "rqh", "rid", "sc", "ca", "exp");
       assertThat(TableSchemas.IDEMPOTENCY.mapToItem(stored)).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("an in-flight claim omits the result id rather than storing a null")
+    void inFlightOmitsResultId() {
+      IdempotencyItem claimed =
+          IdempotencyItem.builder()
+              .key("client-key-1")
+              .requestHash("sha256:abc")
+              .statusCode(IdempotencyItem.IN_FLIGHT)
+              .createdAt(FIXED)
+              .expiresAt(FIXED.plus(IdempotencyItem.RETENTION).getEpochSecond())
+              .build();
+      Map<String, AttributeValue> stored = store(TableSchemas.IDEMPOTENCY, claimed);
+
+      // Absent, not NULL. A stored null would still occupy the attribute and would make
+      // "claimed but unfinished" indistinguishable from "finished with no resource".
+      assertStoredNames(stored, "k", "rqh", "sc", "ca", "exp");
+      assertThat(claimed.isComplete()).isFalse();
+      assertThat(TableSchemas.IDEMPOTENCY.mapToItem(stored)).isEqualTo(claimed);
     }
   }
 
