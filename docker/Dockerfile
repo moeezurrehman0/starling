@@ -1,4 +1,10 @@
-# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# No `# syntax=` directive, deliberately -- and its removal was a bug fix, not a
+# simplification. The directive makes BuildKit resolve and pull a dockerfile frontend image
+# from Docker Hub before it evaluates a single instruction, which on a restricted network
+# hangs for minutes with no output whatsoever and on an offline one fails outright. Nothing
+# below uses a feature newer than the built-in frontend: no --mount, no heredoc, no
+# COPY --link. docker/Dockerfile.web omits it for the same reason.
 # ---------------------------------------------------------------------------
 # jlink runtime on a distroless base — ADR-0010.
 #
@@ -138,7 +144,12 @@ ENV JAVA_HOME=/opt/java \
     SERVICE_NAME=${SERVICE}
 
 WORKDIR /opt/app
-USER nonroot
+# Numeric, not `USER nonroot`. The name only exists on distroless, so a named USER silently
+# welds this stage to one base and makes the RUNTIME_BASE argument a lie -- any substitute
+# fails the build with "unable to find user nonroot". 65532 is the uid distroless gives that
+# name, so the resulting image is identical there and still non-root everywhere else. This is
+# what makes the documented fallback below a one-argument change rather than a second stage.
+USER 65532:65532
 EXPOSE 8080
 
 # -XX:SharedArchiveFile is deliberately NOT -Xshare:on. A mismatched archive
@@ -169,16 +180,26 @@ ENTRYPOINT ["/opt/java/bin/java", \
 
 
 # ---------------------------------------------------------------------------
-# Documented fallback (ADR-0010). If the jlink build ever proves too fragile,
-# this stage is a working, one-line replacement at roughly the same size but
-# with a shell and a package manager in the runtime image:
+# Documented fallback (ADR-0010).
 #
-#   FROM eclipse-temurin:25-jre-alpine
-#   RUN adduser -D -u 10001 app
-#   COPY --from=exploded /exploded /opt/app
-#   USER app
-#   ENTRYPOINT ["java", "-jar", "/opt/app/application.jar"]
+# The runtime base is an argument, so swapping it is the whole fallback:
 #
-# Kept as a comment on purpose: an untested fallback is not a fallback, and
-# `make image-fallback` builds and verifies it in CI once a week.
+#   docker build -f docker/Dockerfile \
+#     --build-arg RUNTIME_BASE=eclipse-temurin:25-jre-alpine ...
+#
+# or, for Compose, `RUNTIME_BASE=eclipse-temurin:25-jre-alpine make up-app`.
+#
+# Two things make it work rather than merely look like it should. The USER above is numeric,
+# so it does not depend on the base declaring a `nonroot` account; and the jlink runtime is
+# copied to /opt/java and invoked by absolute path, so it is used in preference to whatever
+# JDK the substitute base happens to ship. The image is larger and carries a shell and a
+# package manager -- that is the cost, and it is why it is not the default.
+#
+# It exists for a reason that is concrete rather than hypothetical: gcr.io is unreachable
+# from some corporate Docker daemons, and there the default base hangs on
+# `load metadata for gcr.io/...` indefinitely with no error, because a blocked registry is
+# indistinguishable from a slow one. An earlier version of this file kept the fallback as a
+# commented recipe while asserting that an untested fallback is not a fallback; it was both.
+# `make image-verify` runs against whatever RUNTIME_BASE produced, so the substitute is
+# checked by the same gate as the default.
 # ---------------------------------------------------------------------------

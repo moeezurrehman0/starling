@@ -8,6 +8,13 @@
 # introduces kind for the case where the container itself is what you need to test, and the
 # distroless image from Phase 3 is what runs there.
 #
+# The application services DO have a home here, behind the opt-in `app` profile, because
+# end-to-end tests must exercise the images that ship rather than a Gradle classpath. That is
+# not a nicety: the images are jlink + distroless, so a class the AWS SDK loads reflectively
+# can be present on the classpath and absent from the image, and only running the image finds
+# it. `docker compose --profile app up` (or `make up-app`) starts them; plain `make up` still
+# starts backing services only, so the everyday loop is unchanged.
+#
 # Everything below is bound to 127.0.0.1 explicitly. Docker's default port publishing binds
 # 0.0.0.0, which on a laptop on a café network means an unauthenticated Redis and a DynamoDB
 # holding your test data are reachable by anyone on that network. That default is a genuine
@@ -153,6 +160,192 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Application services — profile: app
+  # ---------------------------------------------------------------------------
+  #
+  # Opt-in, because they are not what you want in the everyday loop: a code change here costs
+  # an image build, and no debugger attaches. They exist so that the end-to-end suite runs
+  # against the artefacts that ship. See the file header.
+  #
+  # Each service builds from docker/Dockerfile, which packages an already-built Boot jar
+  # rather than compiling one, so `./gradlew bootJar` must have run first. `make up-app` does
+  # that for you; building here on its own will fail with a missing JAR_FILE, loudly.
+  #
+  # RUNTIME_BASE is passed through from the environment so that a machine whose Docker daemon
+  # cannot reach gcr.io can still bring the stack up:
+  #
+  #   RUNTIME_BASE=eclipse-temurin:25-jre-alpine make up-app
+  #
+  # There are deliberately no healthchecks on these six. The runtime image is distroless: no
+  # shell, no curl, no wget, and the JDK ships no HTTP client binary, so every healthcheck
+  # that could be written here would either be a lie (`CMD true`) or silently depend on the
+  # fallback base having busybox. `tools/wait-for-stack.sh` polls from the host instead, which
+  # is also what the e2e suite and CI use, so there is exactly one readiness definition.
+
+  user-service:
+    profiles: ["app"]
+    container_name: tc-user-service
+    build: &jvm-build
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE: user-service
+        JAR_FILE: services/user-service/build/libs/user-service.jar
+        RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment: &aws-env
+      # LocalStack accepts any credentials but the SDK's default provider chain refuses to
+      # sign without *some*, failing at first call rather than at startup -- which reads as a
+      # table problem, not a credentials one. Setting them here keeps that hour unspent.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      DYNAMODB_ENDPOINT: http://localstack:4566
+      DYNAMODB_TABLE_PREFIX: ""
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  tweet-service:
+    profiles: ["app"]
+    container_name: tc-tweet-service
+    build:
+      <<: *jvm-build
+      args:
+        SERVICE: tweet-service
+        JAR_FILE: services/tweet-service/build/libs/tweet-service.jar
+        RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
+    ports:
+      - "127.0.0.1:8082:8082"
+    environment:
+      <<: *aws-env
+      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/twitter_search
+      SEARCH_DB_USER: twitter
+      SEARCH_DB_PASSWORD: twitter
+      # On in Compose and off by default in the application, because the indexer is a stream
+      # consumer: two replicas with it on would both index every tweet. Compose runs one.
+      SEARCH_INDEXER_ENABLED: "true"
+      # Left blank on purpose -- StreamArns discovers it from the table. LocalStack mints a
+      # new ARN whenever the stack is recreated, so any literal here would be stale after the
+      # first `make down-hard`.
+      TWEETS_STREAM_ARN: ""
+      MEDIA_BUCKET: twitterclone-media
+      USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
+    depends_on:
+      localstack:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  timeline-service:
+    profiles: ["app"]
+    container_name: tc-timeline-service
+    build:
+      <<: *jvm-build
+      args:
+        SERVICE: timeline-service
+        JAR_FILE: services/timeline-service/build/libs/timeline-service.jar
+        RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
+    ports:
+      - "127.0.0.1:8083:8083"
+    environment:
+      <<: *aws-env
+      REDIS_MAIN_HOST: redis-main
+      REDIS_MAIN_PORT: "6379"
+      # 6379, not the 6380 the host sees: inside the network every container has its own
+      # address space, so both instances sit on the default port and only the host mapping
+      # differs. Copying the host port in here is the classic way to point the celebrity
+      # tier at the main cache and see no error at all.
+      REDIS_CELEB_HOST: redis-celeb
+      REDIS_CELEB_PORT: "6379"
+      TWEET_SERVICE_URL: http://tweet-service:8082
+      USER_SERVICE_URL: http://user-service:8081
+    depends_on:
+      localstack:
+        condition: service_healthy
+      redis-main:
+        condition: service_healthy
+      redis-celeb:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  fanout-worker:
+    profiles: ["app"]
+    container_name: tc-fanout-worker
+    build:
+      <<: *jvm-build
+      args:
+        SERVICE: fanout-worker
+        JAR_FILE: services/fanout-worker/build/libs/fanout-worker.jar
+        RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
+    ports:
+      - "127.0.0.1:8084:8084"
+    environment:
+      <<: *aws-env
+      FANOUT_ENABLED: "true"
+      TWEETS_STREAM_ARN: ""
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  gateway:
+    profiles: ["app"]
+    container_name: tc-gateway
+    build:
+      <<: *jvm-build
+      args:
+        SERVICE: gateway
+        JAR_FILE: services/gateway/build/libs/gateway.jar
+        RUNTIME_BASE: ${RUNTIME_BASE:-gcr.io/distroless/java-base-debian12:nonroot}
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      REDIS_MAIN_HOST: redis-main
+      REDIS_MAIN_PORT: "6379"
+      USER_SERVICE_URL: http://user-service:8081
+      TWEET_SERVICE_URL: http://tweet-service:8082
+      TIMELINE_SERVICE_URL: http://timeline-service:8083
+      # Off. The limiter is a real feature and is tested in its own suite, but leaving it on
+      # here means an e2e run that posts a few hundred tweets starts failing with 429 and
+      # looks like a product bug. Turn it on deliberately when that is what you are testing.
+      RATE_LIMIT_ENABLED: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+    depends_on:
+      redis-main:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      tweet-service:
+        condition: service_started
+      timeline-service:
+        condition: service_started
+
+  web:
+    profiles: ["app"]
+    container_name: tc-web
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      # The web image has its own fallback stage rather than a swappable base, because the
+      # distroless Node image is also the entrypoint (`node`), so substituting the base
+      # changes how the container is started. WEB_TARGET picks the stage.
+      target: ${WEB_TARGET:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # The browser never talks to this; it is the server component's own address for the
+      # edge. Everything the frontend knows about the backend is this one URL.
+      API_BASE: http://gateway:8080
+    depends_on:
+      gateway:
+        condition: service_started
 
 volumes:
   # Named volumes rather than bind mounts. `make down` keeps them so a restart is fast;

@@ -92,13 +92,36 @@ up: ## Start the local stack with docker compose
 
 .PHONY: down
 down: ## Stop the local stack, keeping data volumes
-	docker compose down --remove-orphans
+	docker compose --profile app down --remove-orphans
+
+.PHONY: up-app
+up-app: ## Start the backing services AND the six application containers
+	@# The images package an already-built jar rather than compiling one, so this has to run
+	@# first; Compose would otherwise fail on a missing JAR_FILE after pulling every base.
+	$(GRADLE) bootJar
+	docker compose --profile app up -d --build --wait
+	@# --wait returns when Compose's own conditions are met, which for these six is only
+	@# "the process started": they are distroless and cannot carry a healthcheck. See the
+	@# comment above the app profile in compose.yaml.
+	./tools/wait-for-stack.sh
+	@echo
+	@echo "  web             http://localhost:3000"
+	@echo "  gateway         http://localhost:8080"
+
+.PHONY: logs-app
+logs-app: ## Tail the application containers
+	docker compose --profile app logs -f --tail 100 \
+	  gateway user-service tweet-service timeline-service fanout-worker web
+
+.PHONY: wait
+wait: ## Block until the application stack answers
+	./tools/wait-for-stack.sh
 
 .PHONY: down-hard
 down-hard: ## Stop the local stack and delete its volumes
 	@# The supported way back to empty tables. DynamoDB cannot alter a key schema in place,
 	@# so changing one in tools/dynamodb-tables.json requires this rather than a restart.
-	docker compose down --remove-orphans --volumes
+	docker compose --profile app down --remove-orphans --volumes
 
 .PHONY: tables
 tables: ## Re-run the DynamoDB table bootstrap against the running stack

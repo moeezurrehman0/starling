@@ -55,7 +55,53 @@ RUN npm run build \
  && test -f .next/standalone/server.js
 
 
-# --- Stage 3: runtime image -------------------------------------------------
+# --- Stage 3: documented fallback ------------------------------------------
+# Identical contents on an Alpine Node base, selected with `--target fallback`.
+#
+# It exists for two reasons. The first is the same one the JVM Dockerfile gives
+# for keeping its fallback compiled rather than commented: an untested fallback
+# is not a fallback. The second is concrete — gcr.io is unreachable from some
+# corporate networks, and on those machines stage 4 hangs on
+# `load metadata for gcr.io/...` with no error at all, because a blocked
+# registry looks exactly like a slow one. Anyone hitting that can build this
+# instead and keep working.
+#
+# The trade is real and is why it is not the default: this base carries a
+# shell, a package manager and roughly 50 MB of userland, so a container escape
+# has tools to hand and the CVE surface is the whole distribution rather than
+# libc and the node binary.
+FROM ${NODE_IMAGE} AS fallback
+
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=1970-01-01T00:00:00Z
+
+LABEL org.opencontainers.image.title="twitterclone-web" \
+      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.opencontainers.image.base.name="node:22-alpine"
+
+WORKDIR /app
+COPY --from=build /app/public            ./public
+COPY --from=build /app/.next/static      ./.next/static
+COPY --from=build /app/.next/standalone  ./
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# The `node` user ships with the image at uid 1000. Reusing it avoids an
+# adduser layer and keeps the container off uid 0.
+USER node
+EXPOSE 3000
+
+ENTRYPOINT ["node", "server.js"]
+
+
+# --- Stage 4: runtime image (default) ---------------------------------------
+# Last stage on purpose: `docker build` with no --target builds this one, so
+# the hardened image is what you get unless you deliberately ask otherwise.
 FROM ${RUNTIME_BASE}
 
 ARG GIT_SHA=unknown
@@ -95,47 +141,3 @@ EXPOSE 3000
 # No shell in the image, so this is exec form against the distroless
 # entrypoint, which is `node` itself — hence the bare script path.
 CMD ["server.js"]
-
-
-# --- Stage 4: documented fallback ------------------------------------------
-# Identical contents on an Alpine Node base, selected with `--target fallback`.
-#
-# It exists for two reasons. The first is the same one the JVM Dockerfile gives
-# for keeping its fallback compiled rather than commented: an untested fallback
-# is not a fallback. The second is concrete — gcr.io is unreachable from some
-# corporate networks, and on those machines stage 3 hangs on
-# `load metadata for gcr.io/...` with no error at all, because a blocked
-# registry looks exactly like a slow one. Anyone hitting that can build this
-# instead and keep working.
-#
-# The trade is real and is why it is not the default: this base carries a
-# shell, a package manager and roughly 50 MB of userland, so a container escape
-# has tools to hand and the CVE surface is the whole distribution rather than
-# libc and the node binary.
-FROM ${NODE_IMAGE} AS fallback
-
-ARG GIT_SHA=unknown
-ARG BUILD_TIME=1970-01-01T00:00:00Z
-
-LABEL org.opencontainers.image.title="twitterclone-web" \
-      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
-      org.opencontainers.image.revision="${GIT_SHA}" \
-      org.opencontainers.image.created="${BUILD_TIME}" \
-      org.opencontainers.image.base.name="node:22-alpine"
-
-WORKDIR /app
-COPY --from=build /app/public            ./public
-COPY --from=build /app/.next/static      ./.next/static
-COPY --from=build /app/.next/standalone  ./
-
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
-    HOSTNAME=0.0.0.0
-
-# The `node` user ships with the image at uid 1000. Reusing it avoids an
-# adduser layer and keeps the container off uid 0.
-USER node
-EXPOSE 3000
-
-ENTRYPOINT ["node", "server.js"]
