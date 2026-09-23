@@ -126,6 +126,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  scripts:
+    name: Scripts
+    needs: changes
+    # scripts/ is covered by the docker filter and tools/ by the compose filter, because
+    # that is where each is consumed; both feed this job.
+    if: >-
+      needs.changes.outputs.docker == 'true' ||
+      needs.changes.outputs.compose == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The sandbox probe runs exactly once per 180-minute KodeKloud session against an
+      # account nobody can reproduce, so a bug in it costs the session. It is tested here
+      # instead, against a stubbed AWS CLI -- which is how the subshell bug that made every
+      # capability report a confident, blank-reasoned NO was found.
+      - name: Probe self-test
+        run: ./scripts/probe-selftest.sh
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck scripts/*.sh tools/*.sh
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     needs: changes
@@ -317,7 +342,7 @@ jobs:
   verdict:
     name: CI
     if: always()
-    needs: [changes, java, web, secrets, codeql, images, e2e]
+    needs: [changes, java, web, secrets, scripts, codeql, images, e2e]
     runs-on: ubuntu-latest
     steps:
       # The single required check for branch protection. Listing the individual jobs there

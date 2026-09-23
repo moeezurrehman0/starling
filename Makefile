@@ -159,6 +159,18 @@ tf-test: ## terraform test with mocked providers (Tier P assertions)
 # ---------------------------------------------------------------------------
 # Sandbox  (Tier S) — these APPLY to real AWS. A human runs them.
 # ---------------------------------------------------------------------------
+.PHONY: probe
+probe: ## [TOUCHES AWS] Measure what the playground actually permits (Phase 6)
+	@# Creates and immediately destroys a handful of tiny resources, all named
+	@# probe-<epoch>. Non-fatal throughout: a denial is the result, not an error.
+	./scripts/probe.sh $(ARGS)
+
+.PHONY: probe-selftest
+probe-selftest: ## Test the probe against a stubbed AWS CLI — no credentials needed
+	@# The probe runs once per 180-minute session against an account nobody can
+	@# reproduce. Debugging it there costs the session, so it is tested here.
+	./scripts/probe-selftest.sh
+
 .PHONY: sandbox-up
 sandbox-up: ## [APPLIES TO AWS] Provision the 180-minute sandbox end to end
 	@echo "Not yet implemented — Phase 8." && exit 1

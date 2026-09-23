@@ -1,0 +1,28 @@
+# ShellCheck configuration.
+#
+# Only the findings below are disabled, each for a stated reason. Everything
+# else is a hard failure in CI, because a linter with a long unexplained
+# exclusion list is a linter nobody trusts.
+
+# SC2012 — "use find instead of ls".
+# The two uses are `ls -d ~/.gradle/jdks/*25*/...` to locate a Gradle-managed
+# JDK. Gradle generates those directory names itself, from vendor and version
+# strings, so the non-alphanumeric filenames SC2012 protects against cannot
+# occur. `find -path` would be less readable for no gain.
+disable=SC2012
+
+# SC2317 — "command appears to be unreachable".
+# A false positive on every `cleanup()` function installed with `trap`.
+# ShellCheck has no model of trap dispatch, so the handler looks dead.
+disable=SC2317
+
+# SC1091 — "not following sourced file".
+# scripts/image-report.sh sources a file its own earlier step generates into a
+# temp directory. There is nothing on disk for ShellCheck to follow at lint
+# time, and the file is machine-written rather than authored.
+disable=SC1091
+
+# SC2001 — "use ${var//search/replace} instead of sed".
+# The two cases prefix every line of a multi-line variable. Parameter expansion
+# does not operate per line, so the suggested replacement would be wrong.
+disable=SC2001

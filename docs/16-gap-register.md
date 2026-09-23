@@ -59,8 +59,23 @@ Rows 9, 10, 11 and 20 rest on **presumed** unavailability: the KodeKloud
 documentation lists what is explicitly permitted and is silent on the rest. Silence is
 not the same as prohibition.
 
-The **Phase 6 capability probe** tests each presumption directly and rewrites the
-affected rows with measured facts:
+The **Phase 6 capability probe** (`scripts/probe.sh`, `make probe`) tests each presumption
+directly and rewrites the affected rows with measured facts. It is a script rather than a
+checklist because the session is 180 minutes and the probe is not the demo — it is what has
+to finish before the demo is worth designing. It writes `docs/06-probe-report.md`:
+machine-generated, timestamped and diffable against the next session.
+
+Two details do most of the work. Every probe is **non-fatal and self-cleaning** — a denial
+is the result, not an error, and in an account capped at five EC2 instances a leaked
+resource is a quota failure in the run that matters. And every denial is **classified by
+kind**: `denied by policy` is a service control policy and cannot be worked around from
+inside the account, while `IAM grant missing` is a one-line permissions edit. A report that
+flattens both to "failed" is worth nothing.
+
+The probe itself is tested by `make probe-selftest`, against a stubbed AWS CLI, because a
+bug found during the session costs the session. That is not hypothetical: the first version
+reported a confident, blank-reasoned `NO` for every capability, and the stub is what caught
+it.
 
 | Row | Question the probe answers |
 |-----|---------------------------|
