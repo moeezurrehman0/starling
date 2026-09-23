@@ -10,6 +10,27 @@ spring:
   threads:
     virtual:
       enabled: true
+  datasource:
+    # Search only. The operational store is DynamoDB (ADR-0011); this database holds one table
+    # of derived rows and is rebuildable from the stream, which is why it can be a single
+    # instance with no replica and no backup story in any tier.
+    url: ${SEARCH_DB_URL:jdbc:postgresql://localhost:5432/twitter_search}
+    username: ${SEARCH_DB_USER:twitter}
+    password: ${SEARCH_DB_PASSWORD:twitter}
+    hikari:
+      # Small on purpose. The pool serves search queries and one indexer thread; a large pool
+      # in front of a small database converts a slow query into a connection storm.
+      maximum-pool-size: ${SEARCH_DB_POOL:10}
+      connection-timeout: 3000
+  flyway:
+    # Run at startup rather than as a job. There is exactly one writer of this schema and the
+    # migration creates derived structures, so the usual objection to migrating from the app --
+    # several replicas racing on a shared operational schema -- is answered by Flyway's own
+    # advisory lock and by the fact that a failed migration here loses nothing.
+    enabled: true
+    default-schema: search
+    # Flyway's own bookkeeping table belongs in the schema it manages, not in public.
+    schemas: search
 
 server:
   port: 8082
@@ -46,6 +67,11 @@ twitterclone:
     # the real regional endpoint from the instance's credentials.
     endpoint: ${DYNAMODB_ENDPOINT:}
     table-prefix: ${DYNAMODB_TABLE_PREFIX:}
+  search:
+    # Set from the Terraform output for the tweets table's stream. Blank means the indexer does
+    # not run, which is the right default for a unit test and for a local run with no stream.
+    stream-arn: ${TWEETS_STREAM_ARN:}
+    enabled: ${SEARCH_INDEXER_ENABLED:false}
   media:
     bucket: ${MEDIA_BUCKET:twitterclone-media}
     endpoint: ${S3_ENDPOINT:}

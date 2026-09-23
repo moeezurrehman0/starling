@@ -24,9 +24,17 @@ dependencies {
     // api, not implementation: a consumer of this module injects DynamoDbClient and
     // DynamoDbEnhancedClient by type, so both must be on its compile classpath.
     api(libs.findLibrary("aws-dynamodb-enhanced").get())
+    // The stream reader checkpoints into the shared `stream_checkpoints` item record, and a
+    // consumer injects the checkpoint store by type, so contracts is api rather than
+    // implementation. The dependency runs one way only: contracts declares tables and knows
+    // nothing about clients.
+    api(project(":services:contracts"))
     api(libs.findLibrary("jspecify").get())
 
     implementation(libs.findLibrary("aws-apache-client").get())
+    // The stream reader logs its iterator and poison-record decisions; those log lines are the
+    // only evidence a stalled consumer leaves.
+    implementation("org.slf4j:slf4j-api")
     // The autoconfiguration annotations only. No starter and no web dependency: this module
     // contributes beans to an application, it is not one.
     implementation(libs.findLibrary("boot-autoconfigure").get())
@@ -42,5 +50,8 @@ dependencies {
     testImplementation(platform(libs.findLibrary("spring-boot-bom").get()))
     testImplementation(libs.findLibrary("junit-jupiter").get())
     testImplementation(libs.findLibrary("assertj").get())
+    // Version from the Boot BOM. The starter is deliberately not used: this module has no
+    // Spring context to test, only a reader and a store.
+    testImplementation("org.mockito:mockito-junit-jupiter")
     testRuntimeOnly(libs.findLibrary("junit-platform-launcher").get())
 }

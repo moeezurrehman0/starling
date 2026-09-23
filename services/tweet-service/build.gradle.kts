@@ -50,4 +50,13 @@ dependencies {
         .get()
         .get()
         .forEach { "integrationTestImplementation"(it) }
+
+    // The search index suite runs the real migration against a real Postgres, so it needs
+    // Flyway, the driver and spring-jdbc on its own compile classpath -- `implementation` in
+    // main puts them on the runtime classpath of the integration suite only.
+    libs
+        .findBundle("search-persistence")
+        .get()
+        .get()
+        .forEach { "integrationTestImplementation"(it) }
 }

@@ -50,7 +50,8 @@ public class SecurityConfig {
                     // Reads are open, but the handler still inspects the principal: a request
                     // that does carry a valid token gets likedByMe populated. permitAll means
                     // "a token is not required", not "a token is ignored".
-                    .requestMatchers(HttpMethod.GET, "/v1/tweets/**", "/v1/users/*/tweets")
+                    .requestMatchers(
+                        HttpMethod.GET, "/v1/tweets/**", "/v1/users/*/tweets", "/v1/search/tweets")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

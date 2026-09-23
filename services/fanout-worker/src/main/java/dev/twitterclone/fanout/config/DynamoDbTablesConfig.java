@@ -7,6 +7,7 @@ import dev.twitterclone.contracts.TimelineEntryItem;
 import dev.twitterclone.contracts.UserItem;
 import dev.twitterclone.platform.aws.DynamoDbConfig;
 import dev.twitterclone.platform.aws.DynamoDbProperties;
+import dev.twitterclone.platform.aws.streams.DynamoDbStreamsConfig;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +23,7 @@ import software.amazon.awssdk.services.dynamodb.streams.DynamoDbStreamsClient;
  * Streams API is a separate service endpoint, not a set of extra operations on the data plane.
  */
 @Configuration(proxyBeanMethods = false)
-@Import(DynamoDbConfig.class)
+@Import({DynamoDbConfig.class, DynamoDbStreamsConfig.class})
 @EnableConfigurationProperties(FanoutProperties.class)
 public class DynamoDbTablesConfig {
 

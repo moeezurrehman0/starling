@@ -31,7 +31,6 @@ boot-validation = { module = "org.springframework.boot:spring-boot-starter-valid
 boot-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 boot-security = { module = "org.springframework.boot:spring-boot-starter-security" }
 boot-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
-boot-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
 boot-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
 boot-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 # MockMvc post-processors that put an authenticated principal in the SecurityContext. Without
@@ -58,6 +57,11 @@ aws-s3 = { module = "software.amazon.awssdk:s3" }
 aws-apache-client = { module = "software.amazon.awssdk:apache-client" }
 
 # --- Persistence: PostgreSQL (search index only, ADR-0007) -----------------
+# JdbcClient rather than JPA. The search index is derived data with one table, queried with
+# tsvector operators and ts_rank that have no portable JPA expression -- every interesting
+# query would be a native one. Mapping it would buy a second transaction manager, a Hibernate
+# bootstrap and a dirty-checking session for rows nothing in the system ever mutates.
+boot-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc" }
 postgresql = { module = "org.postgresql:postgresql" }
 flyway-core = { module = "org.flywaydb:flyway-core" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
@@ -86,7 +90,7 @@ plugin-spotbugs = { module = "com.github.spotbugs:com.github.spotbugs.gradle.plu
 [bundles]
 observability = ["micrometer-prometheus", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
 dynamodb = ["aws-dynamodb", "aws-dynamodb-enhanced", "aws-apache-client"]
-search-persistence = ["boot-data-jpa", "postgresql", "flyway-core", "flyway-postgresql"]
+search-persistence = ["boot-jdbc", "postgresql", "flyway-core", "flyway-postgresql"]
 testing = ["boot-test", "assertj", "archunit"]
 testcontainers = ["boot-testcontainers", "testcontainers-junit", "testcontainers-postgresql", "testcontainers-localstack"]
 
