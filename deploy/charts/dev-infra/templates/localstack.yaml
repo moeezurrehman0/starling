@@ -31,9 +31,11 @@ spec:
       labels:
         app.kubernetes.io/name: localstack
     spec:
+      securityContext: {{- include "dev-infra.podSecurityContext" 1000 | nindent 8 }}
       containers:
         - name: localstack
           image: {{ .Values.localstack.image }}
+          securityContext: {{- include "dev-infra.containerSecurityContext" . | nindent 12 }}
           env:
             - {name: SERVICES, value: {{ .Values.localstack.services | quote }}}
             - {name: DEBUG, value: "0"}
@@ -49,6 +51,18 @@ spec:
               port: 4566
             periodSeconds: 5
             failureThreshold: 30
+          # Writable state, owned by fsGroup. Without these, a non-root LocalStack
+          # cannot write /var/lib/localstack and degrades to a lazy-loaded service
+          # index -- it still answers, and still reports Ready, so the only symptom
+          # is a slower first call and a stack trace nobody reads.
+          volumeMounts:
+            - {name: state, mountPath: /var/lib/localstack}
+            - {name: tmp, mountPath: /tmp}
           resources:
             requests: {cpu: 200m, memory: 512Mi}
             limits: {memory: 1Gi}
+      volumes:
+        - name: state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

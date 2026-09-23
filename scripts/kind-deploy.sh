@@ -92,6 +92,23 @@ kubectl label ns "$NS" --overwrite \
 # it just never matches, so creating it now keeps the policies meaningful later.
 kubectl get ns observability >/dev/null 2>&1 || kubectl create ns observability
 
+# The Secret the charts reference by name. Nothing else creates it, and a missing
+# Secret named in `envFrom` does not fail the Deployment -- the pod is scheduled,
+# the image is pulled, and the kubelet then reports CreateContainerConfigError
+# with the Secret name buried in a describe. The Deployment itself stays
+# Available=False with no message about a Secret at all.
+#
+# These are LocalStack's fixed dummy credentials, not secrets in any real sense.
+# They live in a Secret rather than the ConfigMap so that the workload reads them
+# from exactly the same place it will in Tier P, where External Secrets Operator
+# produces this name from Secrets Manager.
+log "applying the dev secret"
+kubectl create secret generic twitter-clone-secrets -n "$NS" \
+  --from-literal=AWS_ACCESS_KEY_ID=test \
+  --from-literal=AWS_SECRET_ACCESS_KEY=test \
+  --from-literal=SEARCH_DB_PASSWORD=twitter \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
 log "installing dev-infra"
 helm upgrade --install dev-infra "$ROOT/deploy/charts/dev-infra" -n "$NS" --wait --timeout 5m
 
@@ -119,22 +136,45 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      # The namespace enforces the restricted profile, and a Job is subject to it
+      # like anything else. Without this the Job object is created, reports
+      # Running, and never produces a Pod -- admission rejects each attempt and
+      # the only trace is a FailedCreate event on the Job. A wait on
+      # condition=complete then blocks for the full timeout and reports
+      # "timed out waiting for the condition", which says nothing about admission.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: create
           image: python:3.12-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
           command: [sh, -c]
           args:
-            - pip install --quiet boto3 && python /work/create-tables.py
+            # --user with a writable HOME: a non-root pod cannot write to the
+            # image's site-packages, and pip's error names the directory rather
+            # than the user.
+            - pip install --quiet --user boto3 && python /work/create-tables.py
           env:
             - {name: AWS_ENDPOINT_URL, value: "http://localstack:4566"}
             - {name: AWS_REGION, value: us-east-1}
             - {name: AWS_ACCESS_KEY_ID, value: test}
             - {name: AWS_SECRET_ACCESS_KEY, value: test}
+            - {name: HOME, value: /home/nonroot}
+            - {name: PYTHONPATH, value: /home/nonroot/.local/lib/python3.12/site-packages}
           volumeMounts:
             - {name: work, mountPath: /work}
+            - {name: home, mountPath: /home/nonroot}
       volumes:
         - name: work
           configMap: {name: create-tables}
+        - name: home
+          emptyDir: {}
 YAML
 kubectl wait --for=condition=complete --timeout=300s -n "$NS" job/create-tables
 

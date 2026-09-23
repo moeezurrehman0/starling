@@ -35,9 +35,12 @@ spec:
       labels:
         app.kubernetes.io/name: postgres
     spec:
+      # 999 is the `postgres` user in the official image.
+      securityContext: {{- include "dev-infra.podSecurityContext" 999 | nindent 8 }}
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
+          securityContext: {{- include "dev-infra.containerSecurityContext" . | nindent 12 }}
           env:
             - {name: POSTGRES_DB, value: {{ .Values.postgres.db | quote }}}
             - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}

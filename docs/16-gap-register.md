@@ -291,6 +291,42 @@ names in `deploy/envs/prod/`, because the `sub` condition is
 `system:serviceaccount:<ns>:<name>` and a rename on either side silently drops every pod back
 onto the node instance role.
 
+**17. A NetworkPolicy that is right in production is wrong locally, and nothing renders
+differently.** The `allowExternalEgress` rule is `0.0.0.0/0` minus `169.254.169.254/32` and
+the three RFC1918 ranges — the exclusions being the point, since without them every pod can
+reach the node's instance metadata and borrow its role, which defeats IRSA. In Tier P that
+rule is exactly how a service reaches DynamoDB. In Tier L, DynamoDB *is* LocalStack, a pod on
+the cluster network, so the same rule blocks it. The policy rendered identically in both
+tiers, `helm lint` and `kubeconform` passed, the pod went `1/1 Running`, and the only symptom
+was `ApiCallTimeoutException ... 5000 millis` five layers up, presenting at the edge as a
+gateway 504 — which reads like the gateway being unable to reach the service, not like the
+service being unable to reach its database. Two hours were spent on the wrong hop.
+*Control:* every Tier L workload that touches DynamoDB or S3 now names `localstack` in
+`networkPolicy.allowTo`, with the reason written at each site rather than once. This is the
+first genuinely load-bearing tier difference the register has recorded that is *invisible in
+the manifests* — it exists only in where the dependency lives.
+
+**18. The fan-out worker logged `WARN`, started, reported Ready, and consumed nothing.**
+Stream discovery runs once at boot. When it failed — for the reason in row 17 — the worker
+logged `could not discover the stream for table tweets`, continued to `fan-out consumer
+started`, passed both probes and sat at `1/1 Running` with an empty subscription. Tweets were
+accepted with `201`, rows landed in DynamoDB, and follower timelines stayed empty. No error
+surfaced anywhere: the failure is only visible as an absence. This is the worst shape a
+failure can take, because every dashboard is green and the product is silently broken.
+*Control:* recorded here now; the fix belongs in the worker — a failed discovery must either
+retry until it succeeds or fail the readiness probe, and "started with no stream" must never
+be a `WARN`. Tracked as product gap work, not a deployment concern.
+
+**19. `helm upgrade --reuse-values -f file` silently reverted the image tag.** Re-applying one
+env file to change a single NetworkPolicy field dropped the `--set image.tag=sha-local` from
+the original install, and the Deployment went back to the chart default `sha-0000000`. With
+`pullPolicy: Never` the new pod sat in `Pending`/`ErrImageNeverPull` while the old one kept
+serving, so the service stayed up and the rollout simply never finished. `--reuse-values`
+reads as "keep everything I had" and does not mean that. *Control:* never hand-run `helm
+upgrade` against this cluster — `scripts/kind-deploy.sh` holds the full, correct invocation
+(both values files plus all three `--set` flags) and is the only supported way to apply a
+change.
+
 ---
 
 ## Maintenance

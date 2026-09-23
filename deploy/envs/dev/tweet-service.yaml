@@ -7,7 +7,8 @@ image:
 
 networkPolicy:
   allowFrom: [gateway, timeline-service]
-  allowTo: [user-service, postgres]
+  # localstack: DynamoDB + S3 are in-cluster pods in this tier. See gap register #17.
+  allowTo: [user-service, postgres, localstack]
 
 env:
   AWS_REGION: us-east-1

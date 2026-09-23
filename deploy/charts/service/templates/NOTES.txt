@@ -1,0 +1,33 @@
+{{ .Chart.Name }}/{{ .Release.Name }} installed at image {{ .Values.image.repository }}:{{ .Values.image.tag }}
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ .Release.Name }}
+
+{{- if not .Values.networkPolicy.enabled }}
+
+  WARNING: networkPolicy.enabled is false. This workload can reach every pod in the
+  cluster and every address outside it, including 169.254.169.254 -- the instance
+  metadata service, and therefore the node's role credentials. That defeats IRSA.
+{{- else }}
+
+  Reachable from: {{ if .Values.networkPolicy.allowFrom }}{{ join ", " .Values.networkPolicy.allowFrom }}{{ else }}nothing in-namespace{{ end }}
+  May reach:      {{ if .Values.networkPolicy.allowTo }}{{ join ", " .Values.networkPolicy.allowTo }}{{ else }}nothing in-namespace{{ end }}{{ if .Values.networkPolicy.allowExternalEgress }} + anything outside the cluster{{ end }}
+
+  Egress is default-deny and the external rule excludes every RFC1918 range on
+  purpose. A dependency running as a pod -- LocalStack standing in for DynamoDB,
+  for instance -- is therefore NOT covered by allowExternalEgress and must be named
+  in allowTo. Getting this wrong does not fail the install: it presents much later
+  as a client-side timeout against the dependency. See docs/16-gap-register.md #17.
+{{- end }}
+{{- if .Values.autoscaling.enabled }}
+
+  Autoscaling {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }}; the replicas field is ignored while an HPA exists.
+{{- end }}
+{{- if eq .Values.image.tag "sha-0000000" }}
+
+  WARNING: image.tag is still the chart default placeholder. Nothing set it. With
+  pullPolicy Never the new pod will sit in ErrImageNeverPull while the previous one
+  keeps serving, so the rollout stalls without the service going down. If you reached
+  this by hand-running `helm upgrade --reuse-values`, that is why -- use
+  scripts/kind-deploy.sh, which carries the full invocation. Gap register #19.
+{{- end }}

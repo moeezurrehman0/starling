@@ -215,5 +215,53 @@ if [ "$(arg_after /tmp/render-infra.yaml '      app.kubernetes.io/name: redis-ma
   bad "both Redis tiers share one eviction policy — the split buys nothing"
 fi
 
+log "dev-infra runs under Pod Security 'restricted'"
+# The chart rendered, linted and schema-validated cleanly while being unschedulable:
+# with no securityContext, PSS 'restricted' rejects the *ReplicaSet*, so the Deployment
+# is created, reports Running and never produces a Pod. helm --wait then times out
+# naming nothing. Gap register #11. Nothing above this line would have caught it.
+python3 - /tmp/render-infra.yaml <<'PY' > /tmp/pss.txt 2>&1 || true
+import sys, yaml
+bad = []
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if not d or d.get("kind") not in ("Deployment", "StatefulSet", "Job"):
+        continue
+    name = d["metadata"]["name"]
+    spec = d["spec"]["template"]["spec"]
+    pod = spec.get("securityContext") or {}
+    if pod.get("runAsNonRoot") is not True:
+        bad.append(f"{name}: pod securityContext.runAsNonRoot is not true")
+    if (pod.get("seccompProfile") or {}).get("type") != "RuntimeDefault":
+        bad.append(f"{name}: pod seccompProfile.type is not RuntimeDefault")
+    for c in spec.get("containers", []):
+        sc = c.get("securityContext") or {}
+        if sc.get("allowPrivilegeEscalation") is not False:
+            bad.append(f"{name}/{c['name']}: allowPrivilegeEscalation is not false")
+        if (sc.get("capabilities") or {}).get("drop") != ["ALL"]:
+            bad.append(f"{name}/{c['name']}: capabilities.drop is not [ALL]")
+print("\n".join(bad), end="")
+PY
+if [ -s /tmp/pss.txt ]; then
+  bad "dev-infra has workloads PSS 'restricted' will refuse to schedule"
+  sed 's/^/        /' /tmp/pss.txt
+else
+  ok "every dev-infra workload satisfies PSS restricted"
+fi
+
+log "dev workloads can reach the dependencies they are configured to use"
+# Gap register #17. allowExternalEgress excludes every RFC1918 range on purpose, so it
+# does not cover LocalStack -- which, unlike real DynamoDB, is a pod on this network.
+# Both halves render fine and the failure is an SDK timeout five layers away.
+for f in "$ROOT"/deploy/envs/dev/*.yaml; do
+  svc="$(basename "$f" .yaml)"
+  [ "$svc" = "values" ] && continue
+  grep -q 'http://localstack:' "$f" || continue
+  if grep -E '^\s+allowTo:' "$f" | grep -q 'localstack'; then
+    ok "$svc — points at localstack and is allowed to reach it"
+  else
+    bad "$svc — configured with http://localstack: but localstack is not in networkPolicy.allowTo"
+  fi
+done
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

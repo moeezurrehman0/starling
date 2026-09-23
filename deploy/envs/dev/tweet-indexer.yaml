@@ -23,7 +23,8 @@ service:
 
 networkPolicy:
   allowFrom: []
-  allowTo: [postgres]
+  # localstack: DynamoDB Streams are an in-cluster pod here. See gap register #17.
+  allowTo: [postgres, localstack]
 
 env:
   AWS_REGION: us-east-1

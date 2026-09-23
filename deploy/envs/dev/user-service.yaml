@@ -10,7 +10,11 @@ networkPolicy:
   # Only the gateway and the two services that resolve identity may call this.
   # Nothing in the browser path reaches it directly.
   allowFrom: [gateway, tweet-service, timeline-service]
-  allowTo: []
+  # localstack only appears in this tier. In prod DynamoDB is an external endpoint
+  # reached through allowExternalEgress, which deliberately excludes every private
+  # CIDR -- so locally, where DynamoDB *is* a pod in this namespace, that same rule
+  # blocks it and the only symptom is a 5s SDK timeout. See gap register #17.
+  allowTo: [localstack]
 
 env:
   AWS_REGION: us-east-1

@@ -36,9 +36,12 @@ spec:
       labels:
         app.kubernetes.io/name: redis-{{ $n }}
     spec:
+      # 999 is the `redis` user baked into redis:*-alpine.
+      securityContext: {{- include "dev-infra.podSecurityContext" 999 | nindent 8 }}
       containers:
         - name: redis
           image: {{ $.Values.redis.image }}
+          securityContext: {{- include "dev-infra.containerSecurityContext" . | nindent 12 }}
           args:
             - --maxmemory
             - {{ (index $.Values.redis $n).maxmemory | quote }}

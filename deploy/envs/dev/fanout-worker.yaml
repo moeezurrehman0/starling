@@ -20,7 +20,8 @@ service:
 
 networkPolicy:
   allowFrom: []
-  allowTo: []
+  # localstack: DynamoDB Streams + tables are in-cluster pods here. See gap register #17.
+  allowTo: [localstack]
 
 env:
   AWS_REGION: us-east-1
