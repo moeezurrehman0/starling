@@ -13,6 +13,7 @@ import dev.twitterclone.fanout.persistence.CheckpointRepository;
 import dev.twitterclone.fanout.persistence.FollowerRepository;
 import dev.twitterclone.fanout.persistence.TimelineWriter;
 import dev.twitterclone.platform.aws.DynamoDbProperties;
+import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.testing.LocalStack;
 import java.net.URI;
 import java.time.Duration;
@@ -86,9 +87,11 @@ class StreamConsumerIntegrationTest {
     assertThat(streamArn).as("the tweets table must have a stream").isNotBlank();
 
     DynamoDbProperties properties = new DynamoDbProperties(endpoint, "");
+    // Left blank on purpose: this exercises StreamArns discovery against a real table, which is
+    // how Compose and the sandbox run (LocalStack mints a new ARN on every stack recreate).
     FanoutProperties fanoutProperties =
         new FanoutProperties(
-            streamArn,
+            "",
             PROPERTIES_TEMPLATE.pollInterval(),
             PROPERTIES_TEMPLATE.idleBackoff(),
             PROPERTIES_TEMPLATE.batchSize(),
@@ -106,7 +109,9 @@ class StreamConsumerIntegrationTest {
             new CheckpointRepository(
                 enhanced.table("stream_checkpoints", TableSchemas.STREAM_CHECKPOINT)),
             fanout,
-            fanoutProperties);
+            fanoutProperties,
+            new StreamArns(client),
+            properties);
   }
 
   private void user(String id, boolean celebrity) {

@@ -10,7 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.twitterclone.contracts.StreamCheckpointItem;
+import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.DynamoDbStreamCheckpoints;
+import dev.twitterclone.platform.aws.streams.StreamArns;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -25,15 +27,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DescribeStreamRequest;
 import software.amazon.awssdk.services.dynamodb.model.DescribeStreamResponse;
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetRecordsResponse;
 import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorResponse;
 import software.amazon.awssdk.services.dynamodb.model.OperationType;
 import software.amazon.awssdk.services.dynamodb.model.Record;
+import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.Shard;
 import software.amazon.awssdk.services.dynamodb.model.StreamDescription;
 import software.amazon.awssdk.services.dynamodb.model.StreamRecord;
@@ -51,9 +56,13 @@ class TweetIndexerTest {
   @Mock private DynamoDbStreamsClient streams;
   @Mock private DynamoDbStreamCheckpoints checkpoints;
   @Mock private SearchIndex index;
+  @Mock private DynamoDbClient dynamo;
+
+  private static final DynamoDbProperties TABLES = new DynamoDbProperties(null, "");
 
   private TweetIndexer indexer() {
-    return new TweetIndexer(streams, checkpoints, index, PROPERTIES);
+    return new TweetIndexer(
+        streams, checkpoints, index, PROPERTIES, new StreamArns(dynamo), TABLES);
   }
 
   private void oneShard() {
@@ -216,12 +225,19 @@ class TweetIndexerTest {
     @Test
     @DisplayName("does nothing when no stream is configured")
     void disabledWithoutArn() {
+      // Blank configuration falls back to discovery, and discovery finding nothing must be
+      // the same "idle" as no configuration at all rather than a startup failure.
+      when(dynamo.describeTable(any(DescribeTableRequest.class)))
+          .thenThrow(ResourceNotFoundException.builder().message("no such table").build());
+
       TweetIndexer idle =
           new TweetIndexer(
               streams,
               checkpoints,
               index,
-              new SearchProperties("", Duration.ofSeconds(1), Duration.ofSeconds(1), 100, true));
+              new SearchProperties("", Duration.ofSeconds(1), Duration.ofSeconds(1), 100, true),
+              new StreamArns(dynamo),
+              TABLES);
 
       assertThat(idle.pollOnce()).isZero();
       verify(streams, never()).describeStream(any(DescribeStreamRequest.class));

@@ -2,7 +2,9 @@
 package dev.twitterclone.tweet.search;
 
 import dev.twitterclone.contracts.StreamCheckpointItem;
+import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.DynamoDbStreamCheckpoints;
+import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.streams.StreamReader;
 import dev.twitterclone.platform.aws.streams.StreamRecords;
 import java.time.Instant;
@@ -46,13 +48,16 @@ public class TweetIndexer {
       DynamoDbStreamsClient streams,
       DynamoDbStreamCheckpoints checkpoints,
       SearchIndex index,
-      SearchProperties properties) {
+      SearchProperties properties,
+      StreamArns arns,
+      DynamoDbProperties dynamo) {
     this.reader =
         new StreamReader(
             streams,
             checkpoints,
             StreamCheckpointItem.GROUP_SEARCH,
-            properties.streamArn(),
+            // Blank resolves to the tweets table's current stream; see StreamArns.
+            arns.resolve(properties.streamArn(), dynamo.table("tweets")).orElse(""),
             properties.batchSize());
     this.index = index;
   }

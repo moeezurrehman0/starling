@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import dev.twitterclone.contracts.StreamCheckpointItem;
 import dev.twitterclone.fanout.config.FanoutProperties;
 import dev.twitterclone.fanout.persistence.CheckpointRepository;
+import dev.twitterclone.platform.aws.DynamoDbProperties;
+import dev.twitterclone.platform.aws.streams.StreamArns;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +27,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DescribeStreamRequest;
 import software.amazon.awssdk.services.dynamodb.model.DescribeStreamResponse;
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.ExpiredIteratorException;
 import software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetRecordsResponse;
@@ -35,6 +39,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetShardIteratorResponse;
 import software.amazon.awssdk.services.dynamodb.model.OperationType;
 import software.amazon.awssdk.services.dynamodb.model.Record;
+import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.Shard;
 import software.amazon.awssdk.services.dynamodb.model.ShardIteratorType;
 import software.amazon.awssdk.services.dynamodb.model.StreamDescription;
@@ -55,9 +60,13 @@ class StreamConsumerTest {
   @Mock private DynamoDbStreamsClient streams;
   @Mock private CheckpointRepository checkpoints;
   @Mock private FanoutService fanout;
+  @Mock private DynamoDbClient dynamo;
+
+  private static final DynamoDbProperties TABLES = new DynamoDbProperties(null, "");
 
   private StreamConsumer consumer(FanoutProperties properties) {
-    return new StreamConsumer(streams, checkpoints, fanout, properties);
+    return new StreamConsumer(
+        streams, checkpoints, fanout, properties, new StreamArns(dynamo), TABLES);
   }
 
   private StreamConsumer consumer() {
@@ -284,9 +293,13 @@ class StreamConsumerTest {
     void noArn() {
       FanoutProperties blank =
           new FanoutProperties("", Duration.ofSeconds(1), Duration.ofSeconds(5), 100, 50_000, true);
+      // Blank asks the tweets table for its stream; a table that is not there leaves the
+      // consumer idle rather than failing to start.
+      when(dynamo.describeTable(any(DescribeTableRequest.class)))
+          .thenThrow(ResourceNotFoundException.builder().message("no such table").build());
 
-      // Blank means idle rather than guessing: a consumer pointed at the wrong stream is
-      // worse than one pointed at none.
+      // Idle rather than guessing: a consumer pointed at the wrong stream is worse than one
+      // pointed at none.
       assertThat(consumer(blank).pollOnce()).isZero();
       verify(streams, never()).describeStream(any(DescribeStreamRequest.class));
     }

@@ -4,6 +4,8 @@ package dev.twitterclone.fanout.domain;
 import dev.twitterclone.contracts.StreamCheckpointItem;
 import dev.twitterclone.fanout.config.FanoutProperties;
 import dev.twitterclone.fanout.persistence.CheckpointRepository;
+import dev.twitterclone.platform.aws.DynamoDbProperties;
+import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.streams.StreamReader;
 import dev.twitterclone.platform.aws.streams.StreamRecords;
 import java.util.List;
@@ -43,13 +45,18 @@ public class StreamConsumer {
       DynamoDbStreamsClient streams,
       CheckpointRepository checkpoints,
       FanoutService fanout,
-      FanoutProperties properties) {
+      FanoutProperties properties,
+      StreamArns arns,
+      DynamoDbProperties dynamo) {
     this.reader =
         new StreamReader(
             streams,
             checkpoints,
             StreamCheckpointItem.GROUP_FANOUT,
-            properties.streamArn(),
+            // Blank resolves to whatever stream the tweets table currently has. LocalStack
+            // mints a new ARN every time the stack is recreated, so a pinned value would be
+            // stale after the first teardown.
+            arns.resolve(properties.streamArn(), dynamo.table("tweets")).orElse(""),
             properties.batchSize());
     this.fanout = fanout;
   }

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.streams.DynamoDbStreamsClient;
 
 /**
@@ -46,5 +47,19 @@ public class DynamoDbStreamsConfig {
       builder.endpointOverride(properties.endpoint());
     }
     return builder.build();
+  }
+
+  /**
+   * Resolves a blank stream ARN against the table that owns the stream.
+   *
+   * <p>Lives here rather than in each consumer because both consumers need it and both would
+   * otherwise re-implement the same {@code DescribeTable} call with different failure behaviour.
+   *
+   * @param dynamo the data-plane client, which also serves {@code DescribeTable}
+   * @return the resolver
+   */
+  @Bean
+  public StreamArns streamArns(DynamoDbClient dynamo) {
+    return new StreamArns(dynamo);
   }
 }
