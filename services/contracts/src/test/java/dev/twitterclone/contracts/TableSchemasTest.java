@@ -385,8 +385,12 @@ class TableSchemasTest {
     @Test
     @DisplayName("declares the author index that serves a profile page")
     void authorIndex() {
-      assertThat(TableSchemas.TWEET.tableMetadata().indexPartitionKey(TweetItem.AUTHOR_INDEX))
-          .isEqualTo("aid");
+      TableMetadata meta = TableSchemas.TWEET.tableMetadata();
+      assertThat(meta.indexPartitionKey(TweetItem.AUTHOR_INDEX)).isEqualTo("aid");
+      // Sorted on the tweet id, which UUIDv7 makes equivalent to sorting on creation time.
+      // Without this tag the enhanced client cannot build a sortBetween or a descending scan
+      // on the index, and a profile page silently loses its ordering.
+      assertThat(meta.indexSortKey(TweetItem.AUTHOR_INDEX)).contains("tid");
     }
   }
 

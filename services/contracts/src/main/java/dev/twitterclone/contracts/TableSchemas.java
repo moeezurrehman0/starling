@@ -122,7 +122,13 @@ public final class TableSchemas {
                 a.name("tid")
                     .getter(TweetItem::tweetId)
                     .setter(TweetItem.Builder::tweetId)
-                    .tags(StaticAttributeTags.primaryPartitionKey()))
+                    .tags(
+                        StaticAttributeTags.primaryPartitionKey(),
+                        // Also the sort key of author-index. UUIDv7 is lexicographically
+                        // ordered by creation time, so sorting the index on the tweet id is
+                        // what makes a profile page "newest first" without storing a second
+                        // timestamp attribute to sort on.
+                        StaticAttributeTags.secondarySortKey(TweetItem.AUTHOR_INDEX)))
         .addAttribute(
             String.class,
             a ->

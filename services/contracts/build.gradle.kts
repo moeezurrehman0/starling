@@ -30,3 +30,13 @@ dependencies {
     testImplementation(libs.findLibrary("assertj").get())
     testRuntimeOnly(libs.findLibrary("junit-platform-launcher").get())
 }
+
+tasks.named<Test>("test") {
+    // TableDefinitionsTest cross-checks these schemas against tools/dynamodb-tables.json, the
+    // file the Terraform data module also reads. Passed as a property rather than resolved
+    // from a relative path so the test does not depend on the working directory Gradle
+    // happens to choose, and so it fails loudly if the file is ever moved.
+    val definitions = rootProject.file("tools/dynamodb-tables.json")
+    inputs.file(definitions).withPropertyName("dynamodbTableDefinitions")
+    systemProperty("dynamodb.tables.file", definitions.absolutePath)
+}

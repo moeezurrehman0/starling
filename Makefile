@@ -75,11 +75,26 @@ image-all: image image-verify image-report ## Build, verify and measure in one g
 # ---------------------------------------------------------------------------
 .PHONY: up
 up: ## Start the local stack with docker compose
-	@echo "Not yet implemented — Phase 4." && exit 1
+	docker compose up -d --wait
+	@echo
+	@echo "  DynamoDB / S3   http://localhost:4566   (LocalStack, tables bootstrapped)"
+	@echo "  redis-main      localhost:6379          (normal users, rate limits)"
+	@echo "  redis-celeb     localhost:6380          (celebrity profiles and fragments)"
+	@echo "  postgres        localhost:5432          (search index only)"
 
 .PHONY: down
-down: ## Stop the local stack
-	@echo "Not yet implemented — Phase 4." && exit 1
+down: ## Stop the local stack, keeping data volumes
+	docker compose down --remove-orphans
+
+.PHONY: down-hard
+down-hard: ## Stop the local stack and delete its volumes
+	@# The supported way back to empty tables. DynamoDB cannot alter a key schema in place,
+	@# so changing one in tools/dynamodb-tables.json requires this rather than a restart.
+	docker compose down --remove-orphans --volumes
+
+.PHONY: tables
+tables: ## Re-run the DynamoDB table bootstrap against the running stack
+	docker compose exec -T localstack python3 /opt/twitter-tools/localstack/create-tables.py
 
 .PHONY: kind-up
 kind-up: ## Create the local kind cluster and bootstrap ArgoCD

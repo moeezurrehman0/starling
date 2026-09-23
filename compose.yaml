@@ -1,0 +1,162 @@
+# SPDX-License-Identifier: MIT
+#
+# Tier L — the local dependency stack.
+#
+# This file runs the *backing services* only. The five application services are not here on
+# purpose: during development they run from the IDE or from `./gradlew bootRun`, where a
+# rebuild is a second rather than an image build, and where a debugger can attach. Phase 7
+# introduces kind for the case where the container itself is what you need to test, and the
+# distroless image from Phase 3 is what runs there.
+#
+# Everything below is bound to 127.0.0.1 explicitly. Docker's default port publishing binds
+# 0.0.0.0, which on a laptop on a café network means an unauthenticated Redis and a DynamoDB
+# holding your test data are reachable by anyone on that network. That default is a genuine
+# footgun and is overridden here rather than remarked upon.
+
+name: twitter-clone
+
+services:
+  # ---------------------------------------------------------------------------
+  # LocalStack — DynamoDB, DynamoDB Streams, S3
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:4.9
+    container_name: tc-localstack
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      # An explicit service list, not the default "everything". LocalStack starts providers
+      # lazily, but naming them means a typo in an endpoint override fails loudly here instead
+      # of silently falling through to a provider nobody meant to use.
+      SERVICES: dynamodb,dynamodbstreams,s3
+      DEBUG: "0"
+      # Matches the region the services and Terraform assume. A mismatch is not an error in
+      # LocalStack -- it just gives you a second, empty set of tables.
+      AWS_DEFAULT_REGION: us-east-1
+      # DynamoDB Streams shard behaviour is the one thing this project genuinely depends on
+      # LocalStack getting right, since fanout-worker is a hand-rolled consumer. v2 is the
+      # provider backed by a real DynamoDB Local rather than the legacy in-memory one.
+      DYNAMODB_PROVIDER_V2: "1"
+    volumes:
+      # Init hooks run once LocalStack reports ready. This is what makes `make up` sufficient
+      # on its own, with no follow-up bootstrap command to forget.
+      - ./tools/localstack/ready.d:/etc/localstack/init/ready.d:ro
+      # The table definitions and the script that applies them. Read-only: nothing in the
+      # container has any business editing the definitions the Terraform also reads.
+      - ./tools:/opt/twitter-tools:ro
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      # Asserts that the init hooks both ran and succeeded, not merely that the port is open.
+      # See tools/localstack/healthcheck.py for why the obvious probes give false passes.
+      test: ["CMD", "python3", "/opt/twitter-tools/localstack/healthcheck.py"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Redis — two instances, deliberately
+  # ---------------------------------------------------------------------------
+  #
+  # Splitting the cache tier is the point, not an accident of local convenience. A celebrity
+  # profile is read on every timeline render by every one of millions of followers; a normal
+  # profile is read by a handful of people. Sharing one instance lets a single hot celebrity
+  # key saturate a shard and evict the long tail that the rest of the product depends on, and
+  # it makes the two workloads impossible to size, observe or tune separately.
+  #
+  # Running both locally rather than faking it with key prefixes means the connection routing
+  # in timeline-service is exercised every day, instead of being a code path that first runs
+  # in the sandbox.
+
+  redis-main:
+    image: redis:8.2-alpine
+    container_name: tc-redis-main
+    ports:
+      - "127.0.0.1:6379:6379"
+    command:
+      # allkeys-lru: this instance holds normal-user profiles, timeline fragments and the
+      # gateway's rate-limit counters. All are reconstructible, so evicting the coldest key
+      # under pressure is correct. Redis's *default* policy is noeviction, which turns a full
+      # cache into write errors -- the failure mode you least want on the rate limiter.
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis-celeb:
+    image: redis:8.2-alpine
+    container_name: tc-redis-celeb
+    ports:
+      - "127.0.0.1:6380:6379"
+    command:
+      # Smaller and with a different policy. The celebrity working set is small and bounded --
+      # a few thousand accounts -- but every entry is enormously hot, so LRU is the wrong
+      # instinct here: evicting a celebrity's recent-tweet list under memory pressure would
+      # push fan-out-on-read traffic straight onto DynamoDB for millions of readers at once.
+      # volatile-ttl evicts only keys that already carry an expiry, and the nearest first,
+      # which keeps un-expiring celebrity state resident.
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - volatile-ttl
+      - --appendonly
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — search index only
+  # ---------------------------------------------------------------------------
+  #
+  # Not the operational store. Everything transactional moved to DynamoDB in ADR-0011.
+  # Postgres survives for exactly one job: full-text search over tweets, which DynamoDB
+  # cannot do and which OpenSearch would do properly at a cost this project will not pay in
+  # a 180-minute sandbox. It is fed asynchronously from the tweets stream, so it is
+  # eventually consistent by construction and losing it loses no durable data.
+  postgres:
+    image: postgres:18-alpine
+    container_name: tc-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: twitter_search
+      POSTGRES_USER: twitter
+      # Local-only credential. Nothing here is reachable off the loopback interface, and the
+      # sandbox and production equivalents come from Secrets Manager via External Secrets.
+      POSTGRES_PASSWORD: twitter
+      # Postgres 18 defaults to scram-sha-256 for host connections; stating it stops a future
+      # image default from silently loosening local auth to trust.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    volumes:
+      # Mounted at /var/lib/postgresql, NOT /var/lib/postgresql/data. The postgres:18 image
+      # moved the data directory into a major-version-specific subdirectory so that
+      # `pg_upgrade --link` does not have to cross a mount boundary, and it refuses to start
+      # if it finds a volume mounted at the old path. The 17-and-earlier spelling fails with
+      # a long advisory message and exit code 1.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # -U and -d are both required: without them pg_isready checks the wrong database and
+      # reports ready during the init phase, before the real database has been created.
+      test: ["CMD-SHELL", "pg_isready -U twitter -d twitter_search"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  # Named volumes rather than bind mounts. `make down` keeps them so a restart is fast;
+  # `make down-hard` removes them, which is the supported way to get back to empty tables
+  # after changing a key schema that DynamoDB will not alter in place.
+  localstack-data:
+  postgres-data:
