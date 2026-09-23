@@ -152,6 +152,46 @@ teaches people to add `--skip-check` until it is silent.
 All of these were verified by deliberately breaking them and confirming the suite goes
 red. An assertion nobody has seen fail is an assertion nobody should trust.
 
+### 7.1 The test layer
+
+```
+make tf-test
+```
+
+Layers 1–4 all *read* the configuration. None of them evaluates it, and that turns out
+to be a real hole rather than a theoretical one.
+
+`scripts/tf-test.sh` runs `terraform test` under `mock_provider` across all seven modules
+and both roots — 47 run blocks, no credentials, no AWS calls. Because it evaluates the
+config, it sees what reading it cannot: `jsondecode` of the shared table-schema file,
+`for_each` expansion, `variable` validation blocks, lifecycle preconditions, and how the
+modules compose when a root wires them together.
+
+Writing it found one real bug. `modules/database` used `for_each = toset(var.allowed_security_group_ids)`
+and the production root passed `module.eks.cluster_security_group_id`, which does not exist
+until apply. Terraform needs `for_each` keys known at plan time, so the **first** apply of a
+clean root would have failed — and only the first, since afterwards the id is in state. In a
+180-minute disposable session the first apply is the only apply. See gap-register row 20.
+
+The three layers are not redundant, and the division is structural rather than stylistic:
+
+| layer | sees | cannot see |
+| --- | --- | --- |
+| `terraform validate` | types, references, syntax | whether any of it is a good idea |
+| `tf-validate.sh` (grep) | the **absence** of a resource, attribute or argument | anything computed |
+| `tf-test.sh` (evaluate) | computed values, expansion, composition | absence — naming an undeclared resource is a parse error, not a failed assertion |
+
+That last cell is why "the search database has no egress rule" and "database ingress is
+never by CIDR" live in `tf-validate.sh` and not in a `.tftest.hcl`.
+
+Two limits of `mock_provider` are worth knowing before reading the suites. It returns
+random strings for provider-computed attributes, so `aws_iam_policy_document.json` has to
+be mocked with real JSON or `aws_iam_policy` rejects it — which means policy *content* is
+not assertable under mocks and those assertions stay in `tf-validate.sh`. And at root scope
+a test sees module **outputs** only, never the resources inside the modules, so the prod
+root asserts on what the modules choose to expose (`module.network.nodes_are_public == false`
+being the sharpest one).
+
 ## 8. What is not here
 
 No Terraform for the Kubernetes layer. The cluster is created by Terraform and

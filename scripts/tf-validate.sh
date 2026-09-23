@@ -237,6 +237,22 @@ done
 assert_grep "ECR tags are immutable" 'image_tag_mutability = "IMMUTABLE"' \
   "$TF_DIR/modules/registry/main.tf"
 
+# A database initiates no connections. Every egress rule on its security group is
+# either unused or a path out for something that should not be running there.
+#
+# This lives here rather than in modules/database/tests because `terraform test`
+# can only assert over resources that are declared -- the absence of a resource
+# type is invisible to it, and referencing one that does not exist fails to parse
+# rather than evaluating false. Absence is a grep problem.
+refute_grep "the search database has no egress rule" \
+  'aws_vpc_security_group_egress_rule' "$TF_DIR/modules/database/main.tf"
+
+# Same shape, same reason: ingress by security-group reference only. A CIDR rule
+# keeps matching after the workload it was written for is replaced, and admits
+# whatever occupies that range next.
+refute_grep "database ingress is never by CIDR" \
+  'cidr_ipv4' "$TF_DIR/modules/database/main.tf"
+
 # ---------------------------------------------------------------------------
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

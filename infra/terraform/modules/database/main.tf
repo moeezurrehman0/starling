@@ -62,7 +62,19 @@ resource "aws_security_group" "this" {
 # is correct on the day it is written and wrong the moment the VPC is resized;
 # referencing the security group keeps it correct by construction.
 resource "aws_vpc_security_group_ingress_rule" "from_nodes" {
-  for_each = toset(var.allowed_security_group_ids)
+  # Keyed by position, not by the security group id itself.
+  #
+  # toset(var.allowed_security_group_ids) reads better and cannot plan: the
+  # caller passes module.eks.cluster_security_group_id, which does not exist
+  # until the cluster is created, so the for_each keys are unknown and Terraform
+  # refuses. The failure is specific to a clean apply -- once the group is in
+  # state the id is known and every subsequent plan succeeds, so this only ever
+  # breaks the first apply into a new account, which in a 180-minute session is
+  # the only apply there is.
+  #
+  # The list is ordered and short, so positional keys are stable; the id is still
+  # the value, it is simply no longer also the address.
+  for_each = { for idx, sg in var.allowed_security_group_ids : tostring(idx) => sg }
 
   security_group_id            = aws_security_group.this.id
   referenced_security_group_id = each.value

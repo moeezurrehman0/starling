@@ -327,6 +327,32 @@ upgrade` against this cluster — `scripts/kind-deploy.sh` holds the full, corre
 (both values files plus all three `--set` flags) and is the only supported way to apply a
 change.
 
+**20. `terraform validate` passed a `for_each` that could never plan.** The search database
+module took `for_each = toset(var.allowed_security_group_ids)` and the production root passed
+`module.eks.cluster_security_group_id` — a value that does not exist until the EKS cluster is
+created. Terraform requires `for_each` *keys* to be known at plan time, so the first apply of
+a clean root would have stopped with "Invalid for_each argument" before creating anything.
+`terraform fmt`, `terraform validate` and every `refute_grep` in `tf-validate.sh` passed it,
+because nothing in those layers evaluates the expression. Worse, the bug is self-concealing:
+once the security group is in state its id is known, so every apply after the first succeeds —
+and in a 180-minute disposable playground the first apply is the only apply there is. *Control:*
+fixed to key the map by position (`{ for idx, sg in ... : tostring(idx) => sg }`), so the keys
+come from the list's shape rather than its contents; and `scripts/tf-test.sh` now runs every
+module and root under `mock_provider`, which is the only layer that evaluates configuration
+rather than reading it. This class — *validate green, first apply fails, later applies
+succeed* — is the reason the test layer exists at all.
+
+**21. A cost check with no API key would have reported green.** Infracost is part of the
+Phase 9 gate, but this repository has never been pushed and therefore has no secrets, so
+`INFRACOST_API_KEY` is empty. The obvious wiring — `if: secrets.INFRACOST_API_KEY != ''` on
+the step — produces a job that succeeds having done nothing, and a required check that is
+green because it was never configured is indistinguishable, on the pull request page, from
+one that is green because the cost is fine. *Control:* the `cost` job always runs and always
+writes to the run summary; when the key is absent it writes "**skip, not a pass**" in place of
+a breakdown. The check still passes — blocking every merge on an unobtainable secret is worse
+— but nobody reading the run can mistake the reason. The same shape applies to every
+third-party gate added later.
+
 ---
 
 ## Maintenance

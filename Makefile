@@ -162,7 +162,7 @@ tf-validate: ## terraform fmt, validate, tflint and checkov across all roots
 
 .PHONY: tf-test
 tf-test: ## terraform test with mocked providers (Tier P assertions)
-	@echo "Not yet implemented — Phase 9." && exit 1
+	./scripts/tf-test.sh
 
 # ---------------------------------------------------------------------------
 # Sandbox  (Tier S) — these APPLY to real AWS. A human runs them.

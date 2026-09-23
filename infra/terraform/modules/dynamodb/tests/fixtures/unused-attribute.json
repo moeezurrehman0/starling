@@ -1,0 +1,17 @@
+{
+  "$comment": "Deliberately invalid. Used by dynamodb.tftest.hcl to prove the module's lifecycle precondition fires. 'orphan' is declared as an attribute and used by no key and no index, which DynamoDB rejects at create time. Not read by anything else.",
+  "tables": {
+    "broken": {
+      "description": "A table with a spare attribute.",
+      "hash_key": "pk",
+      "range_key": null,
+      "attributes": {
+        "pk": "S",
+        "orphan": "S"
+      },
+      "stream": null,
+      "ttl_attribute": null,
+      "global_secondary_indexes": {}
+    }
+  }
+}
