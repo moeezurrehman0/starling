@@ -33,3 +33,13 @@ logging:
   structured:
     format:
       console: ecs
+
+twitterclone:
+  dynamodb:
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    table-prefix: ${DYNAMODB_TABLE_PREFIX:}
+  fanout:
+    # Discovered by Terraform and injected; blank means the consumer stays idle rather than
+    # guessing at an ARN, because a wrong stream is worse than no stream.
+    stream-arn: ${TWEETS_STREAM_ARN:}
+    enabled: ${FANOUT_ENABLED:true}
