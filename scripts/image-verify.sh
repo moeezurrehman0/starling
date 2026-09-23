@@ -170,10 +170,18 @@ fi
 
 # --- 6: never root ----------------------------------------------------------
 USER_CFG="$(docker image inspect "${IMAGE}" --format '{{.Config.User}}')"
-if [[ "${USER_CFG}" == "nonroot" || "${USER_CFG}" =~ ^[1-9][0-9]*$ ]]; then
+# USER may be a bare name, a bare uid, or uid:gid -- the Dockerfile uses the last
+# of those on purpose, because the name `nonroot` exists only on distroless and a
+# named USER silently welds the image to one base. Only the user half decides
+# whether this is root, so split on the colon before judging. An empty value is
+# root by omission, which is the case most worth catching.
+USER_ID="${USER_CFG%%:*}"
+if [[ -z "${USER_CFG}" || "${USER_ID}" == "root" || "${USER_ID}" == "0" ]]; then
+  fail "runs as root (USER '${USER_CFG}')"
+elif [[ "${USER_ID}" =~ ^[0-9]+$ || "${USER_ID}" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   pass "runs as ${USER_CFG}, not root"
 else
-  fail "runs as '${USER_CFG}'"
+  fail "cannot tell who this runs as (USER '${USER_CFG}')"
 fi
 
 echo

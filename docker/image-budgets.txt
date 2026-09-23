@@ -10,43 +10,72 @@
 # it least. One number per service keeps each one honest against its own
 # history, which is the only comparison that detects a regression.
 #
-# WHAT THE NUMBERS MEAN, AND WHY THEY DIFFER SO MUCH
+# WHAT THE NUMBERS MEAN, AND WHY THEY DIFFER
 #
-# Measured cold pull (sum of gzipped layer blobs, arm64, 2026-09-23):
+# Measured cold pull (sum of gzipped layer blobs, arm64, 2026-09-23, from
+# images that were then driven end to end by the Playwright suite):
 #
-#   gateway           104.8 MB
-#   user-service      117.3 MB
-#   timeline-service  127.0 MB
-#   fanout-worker     127.1 MB
-#   tweet-service     151.8 MB
+#   fanout-worker     119.0 MB
+#   gateway           121.8 MB
+#   user-service      122.4 MB
+#   tweet-service     132.2 MB
+#   timeline-service  136.9 MB
 #
-# The 47 MB spread is not waste. tweet-service carries Hibernate, the
-# PostgreSQL driver, the S3 client and the DynamoDB client, so its dependency
-# layer is 71.5 MB gzipped against the gateway's 30.8 MB — and its CDS archive
-# grows with it, 18.0 MB against 11.6 MB, because a larger context archives
-# more classes. Budgets are set roughly 10% above measurement: loose enough to
-# absorb an ordinary dependency bump, tight enough that a duplicated HTTP
-# client or an accidentally shaded uber-jar trips the gate.
+# Three layers account for nearly all of it, and only one of them varies:
+#
+#   /opt/java          48.0 MB   the jlink runtime, byte-identical everywhere
+#   /opt/app/lib     40-52 MB    the service's own dependencies
+#   application.jsa  16-18 MB    the CDS archive, which grows with the above
+#
+# The 18 MB spread is dependencies and nothing else. tweet-service carries
+# Hibernate, the PostgreSQL driver, the S3 client and the DynamoDB client;
+# fanout-worker carries a DynamoDB client and very little else. Budgets are set
+# roughly 10% above measurement: loose enough to absorb an ordinary dependency
+# bump, tight enough that a duplicated HTTP client or an accidentally shaded
+# uber-jar trips the gate.
+#
+# WHY THESE NUMBERS MOVED
+#
+# The first set of budgets was measured before the gateway's rate limiter and
+# before the images had ever been run. Re-measuring found real movement in both
+# directions, which is the gate doing its job rather than the gate being wrong:
+#
+#   gateway        +17 MB  a Redis-backed distributed token bucket. Lettuce,
+#                          spring-data-redis, Reactor, Netty and the Kotlin
+#                          standard library come to 11.2 MB of jars between
+#                          them, and a larger context archives more classes
+#                          into the CDS image. Earned, and kept.
+#   fanout-worker   -8 MB  spring-boot-starter-data-redis removed. The worker
+#                          contained no Redis code; the dependency was pulling
+#                          in that same 11 MB *and* auto-configuring a health
+#                          indicator against localhost:6379 that held the pod
+#                          permanently unready.
+#   tweet-service  -20 MB  measurement error in the first pass, which was taken
+#                          against a jar built before the module split was
+#                          settled and carried duplicate Spring Boot artefacts.
+#
+# A budget is only allowed to go up with a named cause, as above. Raising one
+# because the gate failed is how a size gate stops meaning anything.
 #
 # WHAT THESE NUMBERS ARE NOT
 #
-# They are not what a node pays per service. Comparing tweet-service against
-# gateway shows only 3 of 39 layers differ: the jlink runtime (48.0 MB) and the
-# distroless base (~14 MB) are byte-identical across all five images, so a node
-# pulls that ~62 MB once and every service after the first costs only its own
+# They are not what a node pays per service. Comparing any two of these images
+# shows only 2 of 39 layers differ: the jlink runtime (48.0 MB) and the
+# distroless base (~14 MB) are byte-identical across all five, so a node pulls
+# that ~62 MB once and every service after the first costs only its own
 # dependency and CDS layers. Five services on one node is therefore ~62 MB plus
-# the unique remainder, not the ~628 MB that summing this table suggests.
+# the unique remainder, not the ~632 MB that summing this table suggests.
 #
 # That is a direct consequence of every service sharing one Dockerfile, one
 # base and one module allow-list. Per-service base images would forfeit it.
 
-gateway           115
-user-service      130
-timeline-service  140
-fanout-worker     140
-tweet-service     167
+fanout-worker     131
+gateway           134
+user-service      135
+tweet-service     146
+timeline-service  151
 
 # Fallback for any service not listed. Deliberately set at the largest current
 # budget rather than something generous: a new service should either fit
 # alongside the existing ones or arrive with a measured line of its own.
-*                 167
+*                 151
