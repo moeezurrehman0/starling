@@ -1,0 +1,53 @@
+flowchart LR
+    subgraph dev["Developer"]
+        A["feature branch<br/>Conventional Commit"]
+        B["pre-commit hooks<br/>Spotless, gitleaks"]
+    end
+
+    subgraph ci["GitHub Actions — pull request"]
+        C["paths-filter<br/>changed services"]
+        D["lint + unit +<br/>Testcontainers IT"]
+        E["CodeQL, gitleaks,<br/>JaCoCo 70%"]
+        F["build image<br/>Trivy + SBOM"]
+        G["tf validate, tflint,<br/>Checkov, plan, Infracost"]
+    end
+
+    subgraph main["GitHub Actions — merge to main"]
+        H["build + push<br/>ECR sha-abc1234"]
+        I["cosign sign<br/>keyless OIDC"]
+        J["bot commit:<br/>bump tag in envs/dev"]
+    end
+
+    subgraph gitops["ArgoCD"]
+        K["dev Application<br/>auto-sync + self-heal"]
+        L["promotion PR<br/>envs/prod"]
+        M["prod Application<br/>manual sync"]
+    end
+
+    subgraph cluster["Cluster — kind or EKS"]
+        N["Flyway Job<br/>Helm pre-upgrade hook"]
+        O["Argo Rollouts canary<br/>25% → 50% → 100%"]
+        P["Service pods"]
+    end
+
+    subgraph obs["Observability"]
+        Q["Prometheus<br/>error-rate SLO"]
+        R["Grafana + Tempo"]
+    end
+
+    A --> B --> C --> D --> E --> F --> G
+    G -->|"all gates green"| H
+    H --> I --> J --> K
+    K --> N
+    J -.->|"human opens"| L
+    L -->|"review + merge"| M
+    M --> N
+    N --> O --> P
+    P --> Q
+    P --> R
+    Q -->|"SLO breach"| O
+
+    classDef gate fill:#fff4e6,stroke:#e8890c
+    classDef prod fill:#ffe6e6,stroke:#c92a2a
+    class E,F,G gate
+    class L,M prod

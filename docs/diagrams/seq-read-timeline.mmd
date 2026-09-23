@@ -1,0 +1,33 @@
+---
+title: Reading a home timeline — the hybrid merge
+---
+sequenceDiagram
+    autonumber
+    actor U as User (browser)
+    participant G as gateway
+    participant TL as timeline-service
+    participant R as Redis
+    participant DB as PostgreSQL
+    participant T as tweet-service
+
+    U->>G: GET /api/v1/timeline?limit=50
+    G->>G: validate JWT, check rate limit
+    G->>TL: forward (subject = userId)
+
+    par precomputed portion
+        TL->>R: LRANGE timeline:{userId} 0 49
+        R-->>TL: tweet IDs from non-celebrity authors
+    and celebrity portion
+        TL->>R: SMEMBERS celebrities ∩ following:{userId}
+        R-->>TL: celebrity author IDs (small set)
+        TL->>DB: SELECT id FROM tweets<br/>WHERE author_id IN (...)<br/>AND created_at > now() - interval '2 days'<br/>ORDER BY id DESC LIMIT 50
+        DB-->>TL: recent celebrity tweet IDs
+    end
+
+    TL->>TL: merge both lists by UUIDv7 order, take 50
+    TL->>T: GET /internal/tweets?ids=...  (hydrate)
+    T-->>TL: tweet bodies, media keys, stats
+    TL-->>G: timeline page
+    G-->>U: 200 OK
+
+    Note over TL,DB: If Redis is unavailable the precomputed branch is skipped<br/>and the whole timeline is rebuilt from PostgreSQL:<br/>slower, but correct. Nothing durable lives in Redis.

@@ -1,0 +1,83 @@
+# --- IDE ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+.DS_Store
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/testdata/**/*.key
+kubeconfig
+kubeconfig-*
+.aws-session
+
+# --- Terraform ---
+**/.terraform/*
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfvars
+*.tfvars.json
+!example.tfvars
+!sandbox.tfvars.example
+
+# --- Gradle / Java ---
+.gradle/
+build/
+!src/**/build/
+out/
+bin/
+!**/src/**/bin/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+playwright-report/
+test-results/
+
+# --- Build / test output ---
+*.log
+.cache/
+tmp/
+reports/
+*.sbom.json
+trivy-results.*
+
+# --- Helm ---
+charts/**/charts/
+charts/**/Chart.lock
+*.tgz
+
+# --- Rendered diagram output (sources are .mmd) ---
+docs/diagrams/*.svg
+docs/diagrams/*.png

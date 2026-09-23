@@ -1,0 +1,63 @@
+---
+title: Posting a tweet — from upload to follower timeline
+---
+sequenceDiagram
+    autonumber
+    actor U as User (browser)
+    participant W as web
+    participant G as gateway
+    participant T as tweet-service
+    participant DB as PostgreSQL
+    participant S3 as S3
+    participant Q as Event transport
+    participant F as fanout-worker
+    participant US as user-service
+    participant R as Redis
+
+    Note over U,S3: Media is uploaded directly — it never transits a pod
+
+    U->>W: compose tweet with image
+    W->>G: POST /api/v1/media/presign
+    G->>T: presign request (JWT subject in header)
+    T->>S3: generate presigned PUT URL
+    T-->>G: { url, objectKey }
+    G-->>W: { url, objectKey }
+    W-->>U: presigned URL
+    U->>S3: PUT image bytes (direct)
+
+    Note over U,DB: The write path — tweet and event commit atomically
+
+    U->>W: submit
+    W->>G: POST /api/v1/tweets { body, objectKey, Idempotency-Key }
+    G->>G: validate JWT, check rate limit, attach correlation ID
+    G->>T: forward request
+
+    rect rgb(235, 244, 255)
+        Note over T,DB: single database transaction
+        T->>DB: INSERT INTO tweets
+        T->>DB: INSERT INTO outbox (tweet.created)
+        DB-->>T: COMMIT
+    end
+
+    T-->>G: 201 Created
+    G-->>W: 201 Created
+    W-->>U: tweet appears optimistically
+
+    Note over Q,R: Asynchronous fan-out — the user is no longer waiting
+
+    T-)Q: publish tweet.created
+    Q-)F: deliver event
+    F->>US: GET /internal/users/{authorId}/followers
+    US-->>F: follower IDs + author follower_count
+
+    alt author has < 10,000 followers  (fan-out on write)
+        loop for each follower
+            F->>R: LPUSH timeline:{follower} tweetId
+            F->>R: LTRIM timeline:{follower} 0 799
+        end
+    else author is a celebrity  (fan-out on read)
+        F->>R: SADD celebrities {authorId}
+        Note right of F: no per-follower writes —<br/>timeline-service merges<br/>these tweets at read time
+    end
+
+    Note over F,Q: On failure the message is retried 3 times,<br/>then moved to a DLQ and an alert fires

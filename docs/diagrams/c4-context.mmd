@@ -1,0 +1,26 @@
+---
+title: C4 Level 1 — System Context
+---
+graph TB
+    user["<b>User</b><br/><i>[Person]</i><br/>Posts tweets, follows accounts,<br/>reads a home timeline"]
+
+    subgraph system["Twitter Clone"]
+        app["<b>Twitter Clone</b><br/><i>[Software System]</i><br/>Microblogging: tweets, follows,<br/>timelines, search, notifications"]
+    end
+
+    s3["<b>Object Storage</b><br/><i>[AWS S3]</i><br/>Tweet media, uploaded directly<br/>by the browser via presigned URLs"]
+    idp["<b>Container Registry</b><br/><i>[AWS ECR]</i><br/>Signed service images"]
+    obs["<b>Observability Backend</b><br/><i>[Prometheus, Tempo, Loki]</i><br/>Metrics, traces, logs"]
+
+    user -->|"HTTPS"| app
+    user -.->|"uploads media directly<br/>(presigned PUT)"| s3
+    app -->|"stores media metadata,<br/>issues presigned URLs"| s3
+    app -->|"pulls images"| idp
+    app -->|"emits metrics, traces, logs"| obs
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef internal fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999,stroke:#6b6b6b,color:#fff
+    class user person
+    class app internal
+    class s3,idp,obs external

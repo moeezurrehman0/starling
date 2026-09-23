@@ -1,0 +1,47 @@
+---
+title: C4 Level 2 — Containers
+---
+graph TB
+    user(["<b>User</b><br/><i>[Person]</i>"])
+
+    subgraph cluster["Kubernetes Cluster"]
+        web["<b>web</b><br/><i>[Next.js 15]</i><br/>Server-rendered UI"]
+        gw["<b>gateway</b><br/><i>[Spring Boot 4]</i><br/>Routing, JWT validation,<br/>rate limiting, API versioning"]
+        usr["<b>user-service</b><br/><i>[Spring Boot 4]</i><br/>Accounts, auth, profiles,<br/>follow graph"]
+        twt["<b>tweet-service</b><br/><i>[Spring Boot 4]</i><br/>Tweets, likes, replies,<br/>media metadata, search"]
+        tl["<b>timeline-service</b><br/><i>[Spring Boot 4]</i><br/>Home timeline reads,<br/>cache management"]
+        fan["<b>fanout-worker</b><br/><i>[Spring Boot 4]</i><br/>Consumes tweet events,<br/>writes follower timelines"]
+    end
+
+    pg[("<b>PostgreSQL</b><br/><i>[RDS / Aurora]</i><br/>schemas: users, tweets<br/>+ transactional outbox")]
+    redis[("<b>Redis</b><br/><i>[ElastiCache]</i><br/>timelines, rate limits,<br/>celebrity set")]
+    queue{{"<b>Event transport</b><br/><i>[SNS to SQS, or outbox poll]</i><br/>tweet.created"}}
+    s3[("<b>S3</b><br/>tweet media")]
+
+    user -->|HTTPS| web
+    web -->|"REST /api/v1"| gw
+    user -.->|"presigned PUT"| s3
+
+    gw -->|REST| usr
+    gw -->|REST| twt
+    gw -->|REST| tl
+    gw -->|"token buckets"| redis
+
+    usr --> pg
+    twt --> pg
+    twt -->|"presigned URLs"| s3
+    twt -->|"publishes tweet.created<br/>(same txn as the write)"| queue
+    queue -->|consumes| fan
+
+    fan -->|"who follows the author?"| usr
+    fan -->|"LPUSH + LTRIM<br/>timeline:{follower}"| redis
+
+    tl -->|"LRANGE cached timeline"| redis
+    tl -->|"celebrity tweets<br/>at read time"| pg
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef container fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef store fill:#438dd5,stroke:#2e6295,color:#fff
+    class user person
+    class web,gw,usr,twt,tl,fan container
+    class pg,redis,queue,s3 store
