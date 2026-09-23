@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-package dev.twitterclone.user.config;
+package dev.twitterclone.platform.aws;
 
 import java.net.URI;
 import org.jspecify.annotations.Nullable;

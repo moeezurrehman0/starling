@@ -8,6 +8,7 @@ import dev.twitterclone.contracts.HandleItem;
 import dev.twitterclone.contracts.Ids;
 import dev.twitterclone.contracts.TableSchemas;
 import dev.twitterclone.contracts.UserItem;
+import dev.twitterclone.platform.aws.testing.LocalStack;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -47,7 +48,7 @@ class UserRepositoryIntegrationTest {
 
   @BeforeAll
   void wire() {
-    var localstack = LocalStackSupport.container();
+    var localstack = LocalStack.container();
 
     DynamoDbClient client =
         DynamoDbClient.builder()

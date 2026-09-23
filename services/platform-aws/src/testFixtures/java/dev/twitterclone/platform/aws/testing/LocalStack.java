@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-package dev.twitterclone.user.persistence;
+package dev.twitterclone.platform.aws.testing;
 
 import java.io.IOException;
 import java.net.URI;
@@ -26,13 +26,16 @@ import software.amazon.awssdk.protocols.jsoncore.JsonNodeParser;
  * would mean the suite could pass against a key schema nothing else in the repo produces -- which
  * is the specific failure this project keeps finding and fixing.
  *
- * <p>One container is shared by every test class in the module. Starting LocalStack costs several
- * seconds and the tests below are careful to use distinct user ids rather than to depend on an
- * empty table.
+ * <p>One container is shared by every test class in the JVM. Starting LocalStack costs several
+ * seconds, so suites are expected to use distinct ids rather than to depend on an empty table.
+ *
+ * <p>This lives in a test-fixtures source set rather than being copied into each service. A second
+ * copy would have drifted: the bootstrap-completion check below is subtle enough that a divergent
+ * copy would most likely lose it and start failing intermittently on a cold container.
  */
-final class LocalStackSupport {
+public final class LocalStack {
 
-  private LocalStackSupport() {}
+  private LocalStack() {}
 
   private static final DockerImageName IMAGE =
       // Pinned to the same tag as compose.yaml. A floating tag would let the local stack and
@@ -126,7 +129,12 @@ final class LocalStackSupport {
             .allMatch(script -> "SUCCESSFUL".equals(script.asObject().get("state").asString()));
   }
 
-  static LocalStackContainer container() {
+  /**
+   * The one container, started on first use and reused by every suite in the JVM.
+   *
+   * @return the running LocalStack container
+   */
+  public static LocalStackContainer container() {
     return CONTAINER;
   }
 

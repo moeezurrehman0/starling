@@ -21,6 +21,9 @@ aws-sdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awsSdk" }
 # --- Spring Boot 4 modular starters ----------------------------------------
 # Boot 4 removed the umbrella starters: there is no spring-boot-starter-web.
 boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
+# The annotations only, for the shared library module that contributes beans without being
+# an application. Pulling a starter there would drag logging and a runtime into a library.
+boot-autoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure" }
 boot-webmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
 boot-restclient = { module = "org.springframework.boot:spring-boot-starter-restclient" }
 boot-jackson = { module = "org.springframework.boot:spring-boot-starter-jackson" }

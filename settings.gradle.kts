@@ -24,6 +24,10 @@ include(
     // Declarations only: the DynamoDB item records and TableSchemas shared by the services
     // that read and write the same tables. Listed first because everything else depends on it.
     "services:contracts",
+    // Shared Spring configuration for the AWS SDK. Separate from contracts, which is
+    // deliberately Spring-free: this module exists precisely to hold the wiring that rule
+    // keeps out of there.
+    "services:platform-aws",
     "services:gateway",
     "services:user-service",
     "services:tweet-service",
