@@ -38,6 +38,39 @@ clean: ## Remove build output
 	$(GRADLE) clean
 
 # ---------------------------------------------------------------------------
+# Container image  (Tier L build, promoted unchanged to S and P)  — ADR-0010
+# ---------------------------------------------------------------------------
+SERVICE   ?= gateway
+IMAGE_TAG ?= dev
+IMAGE     := twitterclone/$(SERVICE):$(IMAGE_TAG)
+
+.PHONY: image
+image: ## Build the jlink+CDS distroless image for SERVICE=<name>
+	$(GRADLE) :services:$(SERVICE):bootJar
+	docker build -f docker/Dockerfile \
+	  --build-arg JAR_FILE=services/$(SERVICE)/build/libs/$(SERVICE).jar \
+	  --build-arg SERVICE=$(SERVICE) \
+	  --build-arg GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo dev) \
+	  --build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+	  -t $(IMAGE) .
+
+.PHONY: image-verify
+image-verify: ## Smoke-test the BUILT IMAGE, not the Gradle classpath
+	./scripts/image-verify.sh $(IMAGE)
+
+.PHONY: image-report
+image-report: ## Size report and gates; BASELINE=<image> enables the warm-pull gate
+	./scripts/image-report.sh $(IMAGE) $(BASELINE)
+
+.PHONY: modules-derive
+modules-derive: ## Re-derive the jlink module set and diff it against the allow-list
+	$(GRADLE) :services:$(SERVICE):bootJar
+	./scripts/derive-jlink-modules.sh $(SERVICE)
+
+.PHONY: image-all
+image-all: image image-verify image-report ## Build, verify and measure in one go
+
+# ---------------------------------------------------------------------------
 # Local runtime  (Tier L)   — implemented in Phase 4 and Phase 7
 # ---------------------------------------------------------------------------
 .PHONY: up

@@ -1,0 +1,5 @@
+# Keep the build context small: the Dockerfile only needs the prebuilt jar and
+# docker/jlink-modules.txt. Everything else is noise that invalidates the cache.
+*
+!services/*/build/libs/*.jar
+!docker/jlink-modules.txt

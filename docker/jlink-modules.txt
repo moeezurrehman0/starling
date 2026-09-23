@@ -1,0 +1,100 @@
+# JDK module allow-list for the jlink runtime (ADR-0010)
+# ---------------------------------------------------------------------------
+# DO NOT hand-edit without evidence. Regenerate the candidate set with:
+#
+#     make modules-derive SERVICE=gateway
+#
+# That script unions two sources, because neither is sufficient alone:
+#
+#   * `jdeps --print-module-deps`  — static bytecode references. Misses every
+#     module reached by reflection, ServiceLoader or a JCA provider lookup.
+#   * `-Xlog:class+load` on a real startup — what was *actually* loaded. Misses
+#     modules on code paths the training run never exercises.
+#
+# Measured on 2026-09-23 against gateway: jdeps found 13 modules, the runtime
+# loaded 20, and only 8 were in both. jdeps alone would have shipped a runtime
+# missing java.logging, java.xml and jdk.localedata. That measurement is the
+# entire reason this file exists rather than a bare `jdeps` call in the build.
+#
+# Every entry carries a justification. An entry with no reason is a bug.
+# Adding a module is cheap; removing one is a behaviour change that must be
+# proven by `make image-verify`, which runs the integration suite against the
+# built image rather than against the Gradle classpath.
+# ---------------------------------------------------------------------------
+
+# --- Core -------------------------------------------------------------------
+java.base                 # everything
+java.logging              # java.util.logging; jul-to-slf4j bridge, Tomcat internals
+java.xml                  # JAXP; Jackson XML fallbacks, Tomcat descriptor parsing
+java.instrument           # java agents: OpenTelemetry, JaCoCo in CI images
+java.management           # JMX, MXBeans — Micrometer JVM metrics read these
+jdk.management            # com.sun.management: container-aware CPU and memory
+java.naming               # JNDI; DNS resolution path, AWS IMDS credential lookup
+jdk.naming.dns            # the DNS JNDI provider itself; java.naming does not pull it
+
+# jdk.net was found the hard way, and is the clearest argument for deriving
+# this list per service rather than once. It appears in neither the jdeps
+# output nor the class-load trace of the gateway, because the gateway has no
+# Redis. timeline-service and fanout-worker do, and both failed at context
+# refresh with:
+#   NoClassDefFoundError: jdk/net/ExtendedSocketOptions
+#     at io.lettuce.core.resource.ExtendedKeepAlive...
+# Lettuce reaches for TCP keep-alive tuning that only exists here. A list
+# derived from one service and reused across five would have shipped two
+# broken images that built cleanly and passed every static check.
+jdk.net
+
+# --- Spring Framework -------------------------------------------------------
+# java.desktop is NOT optional for a headless server. Spring's PropertyEditor
+# machinery lives in java.beans, which ships inside java.desktop. Verified by
+# removing it: the context fails with
+#   NoClassDefFoundError: java/beans/PropertyEditorSupport
+# Costs 14 MB of the runtime. Recorded rather than quietly accepted.
+java.desktop
+java.compiler             # javax.annotation.processing types referenced by Spring
+java.scripting            # javax.script — Spring Expression and Tomcat EL edges
+java.prefs                # java.util.prefs, reached through java.beans
+jdk.unsupported           # sun.misc.Unsafe — Netty, Reactor, Objenesis
+
+# --- Data and AWS SDK v2 ----------------------------------------------------
+java.sql                  # JDBC for the PostgreSQL search index (ADR-0011)
+java.net.http             # JDK HttpClient; AWS SDK fallback and health probes
+jdk.zipfs                 # ZipFileSystem — libraries that open jars as filesystems
+jdk.charsets              # non-UTF-8 charsets; S3 metadata and legacy payloads
+
+# --- TLS and crypto ---------------------------------------------------------
+# jdk.crypto.ec is the classic jlink failure: omit it and TLS to AWS endpoints
+# fails at handshake with a misleading error, only in production, and only
+# against endpoints that negotiate ECDHE. Nothing references it statically.
+jdk.crypto.ec
+jdk.crypto.cryptoki       # SunPKCS11 provider, loaded by the default JCA scan
+java.security.jgss        # Kerberos/SPNEGO types on the JCA provider path
+jdk.security.jgss         # its JDK-internal companion
+java.security.sasl        # SASL mechanisms, pulled by the JCA provider scan
+java.xml.crypto           # XML signature providers registered at JCA init
+
+# --- Observability ----------------------------------------------------------
+jdk.jfr                   # Flight Recorder — the only in-place profiler we get
+jdk.management.jfr        # JFR over JMX, so the recorder can be driven remotely
+
+# --- Locales ----------------------------------------------------------------
+# Required for any non-root locale; sun.util.resources.cldr is loaded during
+# startup for date formatting. jlink is invoked with --include-locales=en,
+# which trims this module from 24 MB to 14 MB. Widen the filter here and in
+# the Dockerfile together if the product ever ships non-English formatting.
+jdk.localedata
+
+# ---------------------------------------------------------------------------
+# Deliberately EXCLUDED, with evidence. Each was observed in the class-load
+# trace, then removed, and the image re-verified.
+#
+#   jdk.jshell        JdkConsoleProvider ServiceLoader probe from System.console().
+#   jdk.internal.le   JLine console provider, same probe. Falls back cleanly.
+#   java.smartcardio  SunPCSC JCA provider. JCA tolerates a missing provider.
+#
+# Excluded without ever being observed, and why we are confident:
+#
+#   java.rmi, java.management.rmi         no remote JMX; port-forward + actuator.
+#   jdk.attach, jdk.jcmd, jdk.jdi         no shell in the image, so unusable.
+#   java.sql.rowset, java.transaction.xa  no distributed transactions (ADR-0011).
+# ---------------------------------------------------------------------------

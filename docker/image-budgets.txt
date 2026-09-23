@@ -1,0 +1,52 @@
+# Per-service cold-pull budgets, in gzipped MB — ADR-0010.
+#
+#   <service> <max_cold_mb>
+#
+# WHY PER SERVICE, AND NOT ONE NUMBER
+#
+# A single global ceiling has to be set by the largest image, which for this
+# repo means a limit of ~167 MB. Under that limit the gateway could triple in
+# size and still pass, so the gate would protect only the service that needs
+# it least. One number per service keeps each one honest against its own
+# history, which is the only comparison that detects a regression.
+#
+# WHAT THE NUMBERS MEAN, AND WHY THEY DIFFER SO MUCH
+#
+# Measured cold pull (sum of gzipped layer blobs, arm64, 2026-09-23):
+#
+#   gateway           104.8 MB
+#   user-service      117.3 MB
+#   timeline-service  127.0 MB
+#   fanout-worker     127.1 MB
+#   tweet-service     151.8 MB
+#
+# The 47 MB spread is not waste. tweet-service carries Hibernate, the
+# PostgreSQL driver, the S3 client and the DynamoDB client, so its dependency
+# layer is 71.5 MB gzipped against the gateway's 30.8 MB — and its CDS archive
+# grows with it, 18.0 MB against 11.6 MB, because a larger context archives
+# more classes. Budgets are set roughly 10% above measurement: loose enough to
+# absorb an ordinary dependency bump, tight enough that a duplicated HTTP
+# client or an accidentally shaded uber-jar trips the gate.
+#
+# WHAT THESE NUMBERS ARE NOT
+#
+# They are not what a node pays per service. Comparing tweet-service against
+# gateway shows only 3 of 39 layers differ: the jlink runtime (48.0 MB) and the
+# distroless base (~14 MB) are byte-identical across all five images, so a node
+# pulls that ~62 MB once and every service after the first costs only its own
+# dependency and CDS layers. Five services on one node is therefore ~62 MB plus
+# the unique remainder, not the ~628 MB that summing this table suggests.
+#
+# That is a direct consequence of every service sharing one Dockerfile, one
+# base and one module allow-list. Per-service base images would forfeit it.
+
+gateway           115
+user-service      130
+timeline-service  140
+fanout-worker     140
+tweet-service     167
+
+# Fallback for any service not listed. Deliberately set at the largest current
+# budget rather than something generous: a new service should either fit
+# alongside the existing ones or arrive with a measured line of its own.
+*                 167
