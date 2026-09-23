@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and fill in from the live session. Both ARNs change
+# every time the playground is recycled, which is why neither is committed.
+#
+#   aws sts get-caller-identity
+#   aws iam list-roles --query "Roles[?contains(RoleName, 'eks')].[RoleName,Arn]" --output table
+
+cluster_role_arn = "arn:aws:iam::123456789012:role/eksClusterRole"
+node_role_arn    = "arn:aws:iam::123456789012:role/eksNodeRole"
+
+# Staged deliberately. Data plane first (~3 min), then the cluster (~15 min).
+enable_eks       = false
+enable_search_db = false
+enable_irsa      = false

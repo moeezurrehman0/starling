@@ -30,6 +30,9 @@ on:
       deploy:
         description: A Helm chart, an environment values file, or the ArgoCD wiring changed.
         value: ${{ jobs.detect.outputs.deploy }}
+      terraform:
+        description: A Terraform root, module, or the table schema they read changed.
+        value: ${{ jobs.detect.outputs.terraform }}
       services:
         description: JSON array of the services whose sources changed, for the build matrix.
         value: ${{ jobs.detect.outputs.services }}
@@ -48,6 +51,7 @@ jobs:
       compose: ${{ steps.filter.outputs.compose }}
       ci: ${{ steps.filter.outputs.ci }}
       deploy: ${{ steps.filter.outputs.deploy }}
+      terraform: ${{ steps.filter.outputs.terraform }}
       services: ${{ steps.matrix.outputs.services }}
     steps:
       - uses: actions/checkout@v4
@@ -84,6 +88,12 @@ jobs:
             deploy:
               - 'deploy/**'
               - 'scripts/helm-validate.sh'
+            terraform:
+              - 'infra/terraform/**'
+              - 'scripts/tf-validate.sh'
+              # The dynamodb module jsondecodes this file, so a schema change is a
+              # Terraform change even though no .tf file moved.
+              - 'tools/dynamodb-tables.json'
             gateway:
               - *shared
               - 'services/gateway/**'

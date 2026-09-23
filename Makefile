@@ -158,7 +158,7 @@ helm-lint: ## Lint and render every chart for every environment, then schema-che
 # ---------------------------------------------------------------------------
 .PHONY: tf-validate
 tf-validate: ## terraform fmt, validate, tflint and checkov across all roots
-	@echo "Not yet implemented — Phase 8." && exit 1
+	./scripts/tf-validate.sh
 
 .PHONY: tf-test
 tf-test: ## terraform test with mocked providers (Tier P assertions)

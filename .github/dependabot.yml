@@ -55,16 +55,25 @@ updates:
     commit-message:
       prefix: "ci"
 
-  # Terraform arrives in Phase 8. The block is left commented rather than deleted because
-  # Dependabot raises a visible, weekly "no manifests found" error for a directory that does
-  # not exist, and a permanently-erroring config is how people learn to ignore the tab.
-  # - package-ecosystem: terraform
-  #   directory: "/infra/terraform"
-  #   schedule:
-  #     interval: weekly
-  #     day: monday
-  #   commit-message:
-  #     prefix: "build"
+  # One entry per root. Dependabot resolves provider constraints against the root's
+  # .terraform.lock.hcl, so pointing it at /infra/terraform -- which contains only
+  # modules and no lock -- finds nothing and reports success, which is the worst of
+  # both outcomes.
+  - package-ecosystem: terraform
+    directory: "/infra/terraform/envs/sandbox"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: terraform
+    directory: "/infra/terraform/envs/prod"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "build"
 
   - package-ecosystem: docker
     # Both Dockerfiles live in docker/ -- the services share one multi-stage build and the

@@ -17,6 +17,17 @@ SERVICES=(gateway user-service tweet-service timeline-service fanout-worker web)
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mxx\033[0m  %s\n' "$*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found on PATH"; }
+
+# Check the tools before the cluster. Without this, a missing `kind` makes
+# `kind get clusters` fail, the || fires, and the script reports "cluster not
+# found -- run make kind-up" -- sending you to re-create a cluster that already
+# exists and is healthy. A diagnostic that confidently names the wrong cause is
+# worse than no diagnostic.
+need kind
+need kubectl
+need helm
+need docker
 
 kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || die "cluster '$CLUSTER' not found — run: make kind-up"
 kubectl config use-context "kind-$CLUSTER" >/dev/null
@@ -30,7 +41,11 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   for svc in "${SERVICES[@]}"; do
     log "building image twitterclone/$svc:$TAG"
     if [ "$svc" = "web" ]; then
-      docker build -q -f "$ROOT/docker/Dockerfile.web" -t "twitterclone/web:$TAG" "$ROOT/web" >/dev/null
+      # Context is the repo root, not web/. Dockerfile.web does `COPY web/ ./`
+      # -- the same context compose.yaml uses. Narrowing it to web/ looks tidier
+      # and fails with "/web: not found", which reads like a missing directory
+      # rather than a context that is one level too deep.
+      docker build -q -f "$ROOT/docker/Dockerfile.web" -t "twitterclone/web:$TAG" "$ROOT" >/dev/null
     else
       # The glob matches both the boot jar and the -plain.jar Gradle also emits.
       # Picking the wrong one produces an image that builds, starts, and exits
@@ -84,8 +99,14 @@ helm upgrade --install dev-infra "$ROOT/deploy/charts/dev-infra" -n "$NS" --wait
 # by design -- a service that creates its own tables at boot will happily create
 # the wrong ones in production.
 log "creating DynamoDB tables and the media bucket"
+# Both files. create-tables.py reads dynamodb-tables.json -- mounting only the
+# script gives a Job that pip-installs boto3, starts cleanly and then exits on a
+# "could not find dynamodb-tables.json" that looks like a packaging problem
+# rather than a missing mount. The script's second candidate path is its own
+# directory, which is why /work works without an env override.
 kubectl create configmap create-tables -n "$NS" \
   --from-file="$ROOT/tools/localstack/create-tables.py" \
+  --from-file="$ROOT/tools/dynamodb-tables.json" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl delete job create-tables -n "$NS" --ignore-not-found >/dev/null
 kubectl apply -n "$NS" -f - >/dev/null <<YAML

@@ -20,7 +20,11 @@ kubeconfig-*
 
 # --- Terraform ---
 **/.terraform/*
-.terraform.lock.hcl
+# .terraform.lock.hcl is deliberately NOT ignored. It is the only thing recording
+# the exact provider hashes an apply used; without it, `terraform init` resolves
+# `~> 5.70` to whatever shipped this morning and two people plan different
+# infrastructure from identical code. The default template ignores it, which is
+# the single most commonly inherited Terraform mistake.
 *.tfstate
 *.tfstate.*
 *.tfplan
@@ -81,3 +85,8 @@ charts/**/Chart.lock
 # --- Rendered diagram output (sources are .mmd) ---
 docs/diagrams/*.svg
 docs/diagrams/*.png
+
+# Lock files belong to root modules only. A lock file inside a reusable module is
+# never consulted -- the root's constraints win -- so committing one just creates
+# a second copy to forget to update.
+infra/terraform/modules/*/.terraform.lock.hcl

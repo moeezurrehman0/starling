@@ -184,6 +184,45 @@ jobs:
       - name: Validate every chart in every environment
         run: ./scripts/helm-validate.sh
 
+  terraform:
+    name: Terraform
+    needs: changes
+    if: >-
+      needs.changes.outputs.terraform == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    # No AWS credentials are configured for this job, on purpose. `validate` and
+    # `plan -refresh=false` do not need them, and a job that cannot authenticate
+    # cannot be turned into one that applies by a one-line pull request.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          # The wrapper intercepts stdout to expose it as a step output, which
+          # breaks any script that reads terraform's output itself -- and it does
+          # so by returning empty strings rather than failing.
+          terraform_wrapper: false
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+
+      - name: Install checkov
+        run: pipx install checkov==3.2.334
+
+      # fmt, validate, tflint and checkov, then the assertions that encode this
+      # design specifically: that both tiers read the one table-schema file, that
+      # the production root keeps PITR, deletion protection, private nodes and a
+      # non-public API endpoint, that the sandbox root stays destroyable, that no
+      # real account id or state file is committed, and that every IRSA trust
+      # policy pins both :sub and :aud.
+      - name: Validate every root and module
+        run: ./scripts/tf-validate.sh
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     needs: changes
@@ -375,7 +414,7 @@ jobs:
   verdict:
     name: CI
     if: always()
-    needs: [changes, java, web, secrets, scripts, helm, codeql, images, e2e]
+    needs: [changes, java, web, secrets, scripts, helm, terraform, codeql, images, e2e]
     runs-on: ubuntu-latest
     steps:
       # The single required check for branch protection. Listing the individual jobs there

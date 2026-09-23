@@ -240,6 +240,57 @@ configured identically. Writing that check immediately found a second bug in the
 itself: Helm groups rendered objects by kind, so anchoring on a tier's Service reads forward
 into the *other* tier's Deployment, and the assertion compared the main cache to itself.
 
+**12. A diagnostic that names the wrong cause is worse than none.** `scripts/kind-deploy.sh`
+opened with `kind get clusters | grep -qx "$CLUSTER" || die "cluster not found — run: make
+kind-up"`. With `kind` absent from `PATH` the command fails, the `||` fires, and the script
+confidently reports that a cluster which was up and healthy did not exist — sending the
+reader to re-create it. The check conflated "the tool is missing" with "the tool answered
+no". *Control:* verify the tools first, in a separate step with its own message, so a missing
+binary can never be reported as a missing cluster. The general form: any `cmd | test || die`
+attributes every possible failure of `cmd` to the negative case of `test`.
+
+**13. The lock file the default `.gitignore` tells you to discard is the only thing pinning
+your providers.** Terraform's own recommended ignore list contains `.terraform.lock.hcl`, and
+following it means `~> 5.70` resolves to whatever shipped this morning. Two engineers then
+plan different infrastructure from identical code, and the difference appears as an
+unexplained diff rather than as a version change. There is a second edge behind it: a lock
+generated on an Apple laptop records only `darwin_arm64` hashes, so CI on `linux_amd64` fails
+an `init` that worked locally with a checksum error that reads like a supply-chain
+compromise. *Control:* the lock is committed for both roots, generated with
+`-platform=linux_amd64 -platform=darwin_arm64`, and `scripts/tf-validate.sh` counts the `h1:`
+hashes per provider and fails a single-platform lock. Verified by stripping a hash and
+confirming the suite goes red.
+
+**14. A build context that is one level too deep fails as a missing file.**
+`scripts/kind-deploy.sh` built the web image with the context set to `web/`, while
+`docker/Dockerfile.web` does `COPY web/ ./` against a repo-root context — the same context
+`compose.yaml` uses. The error is `"/web": not found`, which reads as a deleted directory
+rather than a context off by one, and the directory is plainly there. *Control:* the fix is
+one word, but the lesson is that the Dockerfile and every caller share an unwritten contract
+about where the context root is, and only compose stated it. Both callers now say so in a
+comment next to the path.
+
+**15. `terraform validate` has no opinion about whether the configuration is correct.** It
+type-checks. A production root with deletion protection off, public nodes, and a bucket open
+to the world validates cleanly, and so does one that restates the DynamoDB schema in HCL
+instead of reading `tools/dynamodb-tables.json` — at which point LocalStack and AWS drift and
+the difference surfaces as a `ValidationException` against a GSI that exists locally.
+*Control:* `scripts/tf-validate.sh` layers generic tools (`tflint`, `checkov`) over
+design-specific assertions: both tiers must read the one schema file, Tier P must keep PITR,
+deletion protection, a private API endpoint and a purpose-built VPC, Tier S must stay
+destroyable, no real account id or state file may be committed, and every IRSA trust policy
+must pin both `:sub` and `:aud`. Verified by breaking three of them.
+
+**16. An IRSA trust policy missing `:aud` still works.** The condition block needs both
+`sub` and `aud`. With only `sub`, the role is assumable by any token the cluster's issuer
+signs, for any audience; with only `aud`, by every service account in the cluster. Either way
+the pods keep working and nothing is logged, so the loss of per-service isolation — the whole
+reason the roles are split — is invisible. *Control:* asserted in `scripts/tf-validate.sh`,
+and the service names in `modules/iam/variables.tf` are cross-checked against the workload
+names in `deploy/envs/prod/`, because the `sub` condition is
+`system:serviceaccount:<ns>:<name>` and a rename on either side silently drops every pod back
+onto the node instance role.
+
 ---
 
 ## Maintenance
