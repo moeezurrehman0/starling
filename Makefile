@@ -138,12 +138,20 @@ tables: ## Re-run the DynamoDB table bootstrap against the running stack
 	docker compose exec -T localstack python3 /opt/twitter-tools/localstack/create-tables.py
 
 .PHONY: kind-up
-kind-up: ## Create the local kind cluster and bootstrap ArgoCD
-	@echo "Not yet implemented — Phase 7." && exit 1
+kind-up: ## Create the local kind cluster (Calico + ArgoCD) — CNI=kindnet to skip Calico
+	./scripts/kind-up.sh
+
+.PHONY: kind-deploy
+kind-deploy: ## Build, load and helm-install every chart onto the kind cluster
+	./scripts/kind-deploy.sh
 
 .PHONY: kind-down
 kind-down: ## Delete the local kind cluster
-	@echo "Not yet implemented — Phase 7." && exit 1
+	kind delete cluster --name $${CLUSTER:-twitter-clone}
+
+.PHONY: helm-lint
+helm-lint: ## Lint and render every chart for every environment, then schema-check it
+	./scripts/helm-validate.sh
 
 # ---------------------------------------------------------------------------
 # Infrastructure validation  (safe — never touches AWS)

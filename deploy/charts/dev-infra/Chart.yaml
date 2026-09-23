@@ -1,0 +1,7 @@
+apiVersion: v2
+name: dev-infra
+description: >
+  The backing services, for Tier L and Tier S only. Redis (two of them),
+  Postgres and LocalStack, as single-replica Deployments with no persistence.
+type: application
+version: 0.1.0

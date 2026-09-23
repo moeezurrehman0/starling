@@ -151,6 +151,39 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck scripts/*.sh tools/*.sh
 
+  helm:
+    name: Helm
+    needs: changes
+    if: >-
+      needs.changes.outputs.deploy == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      # Pinned, and installed from the release rather than an action, because the
+      # schema set a validator uses is the thing being trusted here -- an
+      # unpinned version can start passing manifests it used to reject.
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/kc.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kc.tar.gz -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      # Renders every service in every environment and schema-checks the result,
+      # then asserts the invariants a schema cannot see: no HPA fighting a
+      # hardcoded replica count, no PDB that blocks drain, the two Redis tiers
+      # genuinely distinct, and the stream consumers pinned to one replica. The
+      # negative checks in the same script prove the guards still fire.
+      - name: Validate every chart in every environment
+        run: ./scripts/helm-validate.sh
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     needs: changes
@@ -342,7 +375,7 @@ jobs:
   verdict:
     name: CI
     if: always()
-    needs: [changes, java, web, secrets, scripts, codeql, images, e2e]
+    needs: [changes, java, web, secrets, scripts, helm, codeql, images, e2e]
     runs-on: ubuntu-latest
     steps:
       # The single required check for branch protection. Listing the individual jobs there

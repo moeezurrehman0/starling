@@ -1,0 +1,61 @@
+{{- include "dev-infra.guard" . }}
+{{- range $n := list "main" "celeb" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-{{ $n }}
+  labels:
+    app.kubernetes.io/name: redis-{{ $n }}
+spec:
+  selector:
+    app.kubernetes.io/name: redis-{{ $n }}
+  ports:
+    # Both caches listen on 6379. In compose they had to differ on the host
+    # (6379/6380) because they shared a port namespace; in Kubernetes each has
+    # its own Service, so copying the compose host port here is how you end up
+    # pointing the celebrity tier at the ordinary cache and observing no error
+    # at all -- just a cache that behaves subtly wrong under load.
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-{{ $n }}
+  labels:
+    app.kubernetes.io/name: redis-{{ $n }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-{{ $n }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-{{ $n }}
+    spec:
+      containers:
+        - name: redis
+          image: {{ $.Values.redis.image }}
+          args:
+            - --maxmemory
+            - 128mb
+            # allkeys-lru, not noeviction. A cache that returns OOM on write
+            # under pressure turns a capacity problem into a request failure;
+            # evicting is the behaviour the application is written to tolerate.
+            - --maxmemory-policy
+            - allkeys-lru
+            - --save
+            - ""
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 160Mi}
+            limits: {memory: 192Mi}
+{{- end }}

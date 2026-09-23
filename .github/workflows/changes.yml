@@ -27,6 +27,9 @@ on:
       ci:
         description: The pipeline changed, which means every filter is untrustworthy.
         value: ${{ jobs.detect.outputs.ci }}
+      deploy:
+        description: A Helm chart, an environment values file, or the ArgoCD wiring changed.
+        value: ${{ jobs.detect.outputs.deploy }}
       services:
         description: JSON array of the services whose sources changed, for the build matrix.
         value: ${{ jobs.detect.outputs.services }}
@@ -44,6 +47,7 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       compose: ${{ steps.filter.outputs.compose }}
       ci: ${{ steps.filter.outputs.ci }}
+      deploy: ${{ steps.filter.outputs.deploy }}
       services: ${{ steps.matrix.outputs.services }}
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +81,9 @@ jobs:
               - 'Makefile'
             ci:
               - '.github/workflows/**'
+            deploy:
+              - 'deploy/**'
+              - 'scripts/helm-validate.sh'
             gateway:
               - *shared
               - 'services/gateway/**'

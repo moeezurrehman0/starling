@@ -1,0 +1,33 @@
+# The one object you apply by hand. Everything else is created by ArgoCD from
+# Git, which is the only way the claim "the cluster matches the repo" can be
+# checked rather than asserted.
+#
+#   kubectl apply -f deploy/argocd/root.yaml
+#
+# Bootstrap rewrites repoURL; see `make kind-up`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: REPO_URL_PLACEHOLDER
+    targetRevision: main
+    path: deploy/argocd
+    helm:
+      parameters:
+        - name: repoURL
+          value: REPO_URL_PLACEHOLDER
+        - name: env
+          value: dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

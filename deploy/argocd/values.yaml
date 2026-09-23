@@ -1,0 +1,32 @@
+# The repository ArgoCD reads. Overridden on bootstrap for a fork or a local
+# clone; there is no sensible default that is right for everyone, so a wrong
+# value must fail loudly rather than silently track someone else's repo.
+repoURL: ""
+targetRevision: main
+
+# dev or prod. Selects which deploy/envs/<env> directory each Application reads
+# and, more importantly, which sync policy it gets.
+env: dev
+
+namespace: twitter-clone
+
+# Auto-sync with prune and self-heal. Correct for dev, wrong for prod.
+#
+# self-heal means a manual `kubectl edit` in the cluster is reverted within
+# minutes. In dev that is the point: it makes drift impossible and forces every
+# change through Git. In prod it removes the operator's ability to stop a bad
+# rollout by hand, so prod syncs only when a promotion PR merges.
+autoSync: true
+
+# Install the ephemeral Redis/Postgres/LocalStack stack alongside the apps. True
+# for Tier L and Tier S; false for Tier P, where these are managed AWS services.
+devInfra: true
+
+services:
+  - gateway
+  - user-service
+  - tweet-service
+  - tweet-indexer
+  - timeline-service
+  - fanout-worker
+  - web

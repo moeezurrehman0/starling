@@ -1,0 +1,18 @@
+# Deliberately not installable in Tier P.
+#
+# Every object here is a single replica with emptyDir storage, which is correct
+# for a disposable cluster and catastrophic anywhere else: a pod reschedule
+# silently discards the data. The guard below makes "someone pointed the prod
+# ArgoCD app at this chart" a template error instead of a data-loss incident.
+tier: dev
+
+redis:
+  image: redis:7.4-alpine
+postgres:
+  image: postgres:17-alpine
+  db: twitter_search
+  user: twitter
+  password: twitter
+localstack:
+  image: localstack/localstack:3.8
+  services: dynamodb,s3

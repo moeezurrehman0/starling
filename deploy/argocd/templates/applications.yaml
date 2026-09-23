@@ -1,0 +1,93 @@
+{{- if not .Values.repoURL }}
+{{- fail "repoURL must be set: ArgoCD cannot infer which repository to track" }}
+{{- end }}
+{{- if .Values.devInfra }}
+---
+# The backing services. Sync wave -1, so Redis, Postgres and LocalStack are
+# healthy before any application pod starts -- otherwise every service crash-loops
+# through its first readiness window and the initial sync reports Degraded for
+# reasons that have nothing to do with the applications.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dev-infra-{{ .Values.env }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: deploy/charts/dev-infra
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.namespace }}
+  syncPolicy:
+    {{- if .Values.autoSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
+{{- range .Values.services }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ . }}-{{ $.Values.env }}
+  namespace: argocd
+  # Without this finalizer, deleting the Application leaves every workload it
+  # created running and unowned. That is the quiet failure mode of app-of-apps:
+  # the tree looks clean and the cluster is full of orphans.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/part-of: twitter-clone
+    twitterclone.io/env: {{ $.Values.env }}
+spec:
+  project: default
+  source:
+    repoURL: {{ $.Values.repoURL | quote }}
+    targetRevision: {{ $.Values.targetRevision | quote }}
+    path: deploy/charts/service
+    helm:
+      releaseName: {{ . }}
+      # Order matters: the environment file first, the service file second, so a
+      # service can override an environment default and not the other way round.
+      valueFiles:
+        - ../../envs/{{ $.Values.env }}/values.yaml
+        - ../../envs/{{ $.Values.env }}/{{ . }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $.Values.namespace }}
+  syncPolicy:
+    {{- if $.Values.autoSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      # Server-side apply. The client-side default stores the whole manifest in a
+      # last-applied-configuration annotation, which breaks on large CRDs and
+      # fights any other controller that owns a field -- the HPA owning
+      # spec.replicas being exactly the case this repo cares about.
+      - ServerSideApply=true
+  revisionHistoryLimit: 5
+  ignoreDifferences:
+    # The HPA owns this field. The chart already omits it when autoscaling is on,
+    # so this is belt and braces for the window between an HPA being created and
+    # the next render -- and it costs nothing to state the ownership explicitly.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+{{- end }}

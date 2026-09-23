@@ -1,0 +1,63 @@
+{{- include "dev-infra.guard" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate. Two Postgres pods briefly sharing one emptyDir
+    # is impossible, but two pods answering the same Service while one has an
+    # empty data directory is not -- and the failure presents as search results
+    # that come and go.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - {name: POSTGRES_DB, value: {{ .Values.postgres.db | quote }}}
+            - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}
+            - {name: POSTGRES_PASSWORD, value: {{ .Values.postgres.password | quote }}}
+            # Postgres refuses to initialise into a non-empty directory, and an
+            # emptyDir mounted at /var/lib/postgresql/data is not empty -- it
+            # contains lost+found on some volume types. The subdirectory avoids
+            # an init failure that reads like a corrupt image.
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, {{ .Values.postgres.user }}]
+            periodSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 384Mi}
+      volumes:
+        - name: data
+          emptyDir: {}
