@@ -179,6 +179,22 @@ public class UserController {
   }
 
   /**
+   * The celebrity accounts this one follows.
+   *
+   * <p>Consumed by timeline-service, which needs to know whose tweets it must pull at read time
+   * because they were deliberately never fanned out. Unpaged on purpose: the answer is a handful of
+   * ids even for a user following thousands of accounts, and a cursor here would make the caller
+   * page just to discover there was nothing more.
+   *
+   * @param userId the account
+   * @return 200 with the celebrity ids
+   */
+  @GetMapping("/users/{userId}/following/celebrities")
+  public Api.UserPage celebrityFollowing(@PathVariable String userId) {
+    return new Api.UserPage(users.celebrityFollowees(userId), null);
+  }
+
+  /**
    * Whether the caller follows an account.
    *
    * @param userId the account

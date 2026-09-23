@@ -4,6 +4,8 @@ package dev.twitterclone.user.persistence;
 import dev.twitterclone.contracts.HandleItem;
 import dev.twitterclone.contracts.UserItem;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -12,6 +14,8 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
+import software.amazon.awssdk.enhanced.dynamodb.model.BatchGetItemEnhancedRequest;
+import software.amazon.awssdk.enhanced.dynamodb.model.ReadBatch;
 import software.amazon.awssdk.enhanced.dynamodb.model.TransactPutItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.TransactWriteItemsEnhancedRequest;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -22,6 +26,9 @@ import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledExcepti
 /** Reads and writes the {@code users} and {@code handles} tables. */
 @Repository
 public class UserRepository {
+
+  /** DynamoDB's hard ceiling on keys in one BatchGetItem. */
+  private static final int BATCH_LIMIT = 100;
 
   private final DynamoDbEnhancedClient enhanced;
   private final DynamoDbTable<UserItem> users;
@@ -41,6 +48,38 @@ public class UserRepository {
 
   public Optional<UserItem> findById(String userId) {
     return Optional.ofNullable(users.getItem(Key.builder().partitionValue(userId).build()));
+  }
+
+  /**
+   * Reads many users at once.
+   *
+   * <p>Callers are expected to keep the list inside DynamoDB's 100-key BatchGetItem limit; the
+   * method chunks anyway rather than throwing, because the caller that exceeds it is a timeline
+   * render and failing one is worse than making two round trips.
+   *
+   * @param userIds the ids to read
+   * @return those that exist, keyed by id
+   */
+  public Map<String, UserItem> findAllById(List<String> userIds) {
+    if (userIds.isEmpty()) {
+      // BatchGetItem rejects an empty request outright, so a user who follows nobody would
+      // otherwise fail rather than come back with nothing.
+      return Map.of();
+    }
+    Map<String, UserItem> found = new LinkedHashMap<>();
+    List<String> distinct = userIds.stream().distinct().toList();
+    for (int from = 0; from < distinct.size(); from += BATCH_LIMIT) {
+      ReadBatch.Builder<UserItem> batch =
+          ReadBatch.builder(UserItem.class).mappedTableResource(users);
+      distinct
+          .subList(from, Math.min(from + BATCH_LIMIT, distinct.size()))
+          .forEach(id -> batch.addGetItem(Key.builder().partitionValue(id).build()));
+      enhanced
+          .batchGetItem(BatchGetItemEnhancedRequest.builder().readBatches(batch.build()).build())
+          .resultsForTable(users)
+          .forEach(user -> found.put(user.userId(), user));
+    }
+    return found;
   }
 
   /** Resolves a handle to its owner, or empty if nobody has claimed it. */

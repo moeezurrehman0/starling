@@ -378,4 +378,17 @@ class UserControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.following").value(true));
   }
+
+  @Test
+  @DisplayName("the celebrity-followees endpoint is unpaged and public")
+  void celebrityFollowing() throws Exception {
+    when(users.celebrityFollowees(OTHER)).thenReturn(List.of("celeb-1", "celeb-2"));
+
+    mvc.perform(get("/v1/users/" + OTHER + "/following/celebrities"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0]").value("celeb-1"))
+        // No cursor: the answer is a handful of ids even for a user following thousands, and
+        // a cursor would make timeline-service page just to learn there is nothing more.
+        .andExpect(jsonPath("$.nextCursor").doesNotExist());
+  }
 }

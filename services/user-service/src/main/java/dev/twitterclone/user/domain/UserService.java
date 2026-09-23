@@ -6,6 +6,8 @@ import dev.twitterclone.contracts.UserItem;
 import dev.twitterclone.user.persistence.FollowRepository;
 import dev.twitterclone.user.persistence.UserRepository;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,14 @@ import org.springframework.stereotype.Service;
 /** Account lifecycle and the follow graph. */
 @Service
 public class UserService {
+
+  /**
+   * Page size used when walking a following list internally.
+   *
+   * <p>Matched to DynamoDB's BatchGetItem ceiling so each page of follow rows becomes exactly one
+   * batch read rather than a page plus a remainder.
+   */
+  private static final int FOLLOWING_SCAN_PAGE = 100;
 
   private static final Logger LOG = LoggerFactory.getLogger(UserService.class);
 
@@ -138,6 +148,38 @@ public class UserService {
 
   public FollowRepository.Page following(String userId, Optional<String> after, int limit) {
     return follows.following(userId, after, limit);
+  }
+
+  /**
+   * The celebrity accounts a user follows.
+   *
+   * <p>This is what makes the hybrid timeline possible. A celebrity's tweets are deliberately
+   * <em>not</em> fanned out — writing one post into ten million inboxes is the thing the design
+   * refuses to do — so the read path has to know which of a user's followees it must pull from
+   * instead of finding pre-materialised.
+   *
+   * <p>The cost is honest and worth stating: this walks the whole following list and batch-reads
+   * every account in it. It is O(following), not O(celebrities), because the {@code follows} table
+   * does not record what kind of account the followee is, and denormalising that would mean
+   * rewriting every follower's row whenever an account is promoted. Callers are expected to cache
+   * the answer; timeline-service does, in the celebrity cache, where one entry serves every read
+   * that user makes.
+   *
+   * @param userId whose following list to inspect
+   * @return the celebrity followees, in no particular order
+   */
+  public List<String> celebrityFollowees(String userId) {
+    List<String> celebrities = new ArrayList<>();
+    Optional<String> cursor = Optional.empty();
+    do {
+      FollowRepository.Page page = follows.following(userId, cursor, FOLLOWING_SCAN_PAGE);
+      users.findAllById(page.ids()).values().stream()
+          .filter(UserItem::celebrity)
+          .map(UserItem::userId)
+          .forEach(celebrities::add);
+      cursor = page.next();
+    } while (cursor.isPresent());
+    return List.copyOf(celebrities);
   }
 
   public boolean isFollowing(String followerId, String followeeId) {

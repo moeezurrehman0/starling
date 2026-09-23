@@ -4,6 +4,7 @@ package dev.twitterclone.user.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -15,6 +16,8 @@ import dev.twitterclone.contracts.UserItem;
 import dev.twitterclone.user.persistence.FollowRepository;
 import dev.twitterclone.user.persistence.UserRepository;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -244,6 +247,58 @@ class UserServiceTest {
       assertThat(service.followers("u1", Optional.empty(), 20)).isEqualTo(page);
       assertThat(service.following("u1", Optional.empty(), 20)).isEqualTo(page);
       assertThat(service.isFollowing("u1", "u2")).isTrue();
+    }
+  }
+
+  @Nested
+  @DisplayName("celebrityFollowees")
+  class CelebrityFollowees {
+
+    private UserItem account(String id, boolean celebrity) {
+      return UserItem.builder()
+          .userId(id)
+          .handle(id)
+          .displayName(id)
+          .followerCount(0L)
+          .celebrity(celebrity)
+          .createdAt(Instant.now())
+          .build();
+    }
+
+    @Test
+    @DisplayName("walks every page of the following list, not just the first")
+    void pagesThrough() {
+      when(follows.following(eq("me"), eq(Optional.empty()), anyInt()))
+          .thenReturn(new FollowRepository.Page(List.of("a"), Optional.of("cursor")));
+      when(follows.following(eq("me"), eq(Optional.of("cursor")), anyInt()))
+          .thenReturn(new FollowRepository.Page(List.of("b"), Optional.empty()));
+      when(users.findAllById(List.of("a"))).thenReturn(Map.of("a", account("a", true)));
+      when(users.findAllById(List.of("b"))).thenReturn(Map.of("b", account("b", true)));
+
+      // Stopping at the first page would silently drop celebrities, and the symptom would be
+      // a timeline that is merely incomplete -- no error, no alert, just missing tweets.
+      assertThat(service().celebrityFollowees("me")).containsExactlyInAnyOrder("a", "b");
+    }
+
+    @Test
+    @DisplayName("keeps only the celebrities")
+    void filters() {
+      when(follows.following(eq("me"), eq(Optional.empty()), anyInt()))
+          .thenReturn(new FollowRepository.Page(List.of("star", "normal"), Optional.empty()));
+      when(users.findAllById(List.of("star", "normal")))
+          .thenReturn(Map.of("star", account("star", true), "normal", account("normal", false)));
+
+      assertThat(service().celebrityFollowees("me")).containsExactly("star");
+    }
+
+    @Test
+    @DisplayName("returns nothing for a user who follows nobody")
+    void followsNobody() {
+      when(follows.following(eq("me"), eq(Optional.empty()), anyInt()))
+          .thenReturn(new FollowRepository.Page(List.of(), Optional.empty()));
+      when(users.findAllById(List.of())).thenReturn(Map.of());
+
+      assertThat(service().celebrityFollowees("me")).isEmpty();
     }
   }
 }
