@@ -965,51 +965,60 @@ the next release of that framework arrives as one pull request. What does not ge
 is the grouping fix — it works because this coupling is known. An unknown one still
 arrives as two PRs that each fail for reasons that do not mention each other.
 
-**S59. The release automation kept half its state in the repository and half outside it,
-and only one half survived.** release-please decides what to do by comparing two things:
-`.github/.release-please-manifest.json`, which is a tracked file, and the newest GitHub
-release, which is not. Recreating the repository (S55) carried the first across and
-dropped the second. The result was a manifest asserting that `0.2.0` had been released
-against a repository with no tags at all, so merging the release pull request produced
-`✔ No latest release found for path: ., component: , but a previous version (0.2.0) was
-specified in the manifest` followed by `⚠ There are untagged, merged release PRs
-outstanding - aborting`. The refusal is correct — the tool cannot tell a lost tag from a
-release in progress, and guessing would either double-tag or skip a version.
+**S59. A plausible diagnosis that fits the evidence and is still wrong.** Merging the
+release pull request produced `✔ No latest release found for path: ., component: , but a
+previous version (0.2.0) was specified in the manifest` followed by `⚠ There are untagged,
+merged release PRs outstanding - aborting`. release-please compares a tracked file,
+`.github/.release-please-manifest.json`, against the newest GitHub release, which is not
+tracked. The repository had just been recreated (S55), which carries the first across and
+drops the second. Manifest says released, no tags exist, tool refuses: the story explains
+every symptom, and it is the wrong story.
 
-What makes this worth recording is not the desync but how it presented. The workflow
-**exited zero**. A green Release run, a merged release pull request, an updated
-`CHANGELOG.md`, and a bumped manifest all appeared, and no version existed. Every signal
-that a release had happened was produced by the steps *before* the one that does the
-release, and the one that matters left only a warning in a log nobody reads on a green
-run. Re-running it changed nothing, because the aborting condition is a state, not a
-transient.
+Acting on it — creating the `v0.2.0` release by hand at the release commit and moving the
+pull request's label to `autorelease: tagged` — made the next run report the correct
+no-op, which read as confirmation. It was not. There were no commits to release yet, so a
+tool that was still broken and a tool that was fixed produce identical output. The
+diagnosis survived because the test could not distinguish them.
 
-Recovery was to supply the missing half: create the `v0.2.0` release at the release
-commit with notes taken from the changelog section the tool had already written, and move
-the pull request's `autorelease: pending` label to `autorelease: tagged` so the
-bookkeeping agrees. The next run then reported `Collecting commits since all latest
-releases` and `No commits for path: ., skipping` — the correct no-op, which is the only
-evidence that the loop is closed.
+The next real release failed the same way, and the line that matters had been on screen
+the whole time, one row above the one that was read: `⚠ PR component: undefined does not
+match configured component: starling`. `release-please-config.json` set `package-name`,
+which becomes the component, alongside `include-component-in-tag: false`, which keeps the
+component out of both the tag and the pull request title. So release-please looked for a
+release belonging to component `starling`, every release and every merged release PR
+reported component `undefined`, and nothing ever matched — `⚠ Expected 1 releases, only
+found 0`. This had been true since the configuration was written. **No release had ever
+been tagged by this repository, in either incarnation.** The recreation destroyed no
+working state; it only removed the last evidence that the state had never worked.
+Dropping `package-name` fixes it, because a single root package has no component to name.
 
-*Gap, now closed:* the Release workflow now asserts its own bookkeeping after the action
-runs. It fails if any merged pull request still carries `autorelease: pending`, which is
-precisely the "cut but never tagged" state and is detectable whether or not any release
-exists, and it fails if the manifest version and the newest release tag disagree. Writing
-it surfaced a second trap worth more than the check itself: the obvious implementation,
-`gh pr list --state merged --label 'autorelease: pending'`, returns zero *while the label
-is attached*, because passing `--label` routes the query through the search index, which
-lags. Tested against the real repository in both directions, it never fired. The label is
-therefore filtered locally from the plain listing. A check that cannot fail is worse than
-no check, because it also removes the suspicion that would have led someone to look.
+Two things are worth keeping. The first is that the workflow **exited zero** throughout. A
+green Release run, a merged release pull request, an updated `CHANGELOG.md`, and a bumped
+manifest all appeared, and no version existed; the only dissent was a warning in a log
+nobody reads on a green run. The second is the failure of reasoning. A recent, dramatic
+event was available as an explanation, it accounted for the symptoms, and it displaced
+reading the rest of the output. The correct cause was less interesting and older, which is
+the usual shape.
 
-What does not generalise is the fix. Any tool splitting its state between version control
-and a hosting provider will desync the moment the provider side is rebuilt, and restoring
-a repository from a git bundle restores exactly the half that was never the problem. The
-assertion here knows the shape of release-please's bookkeeping; it says nothing about the
-next tool that makes the same split.
+*Gap, now closed:* the Release workflow asserts its own bookkeeping after the action runs.
+It fails if any merged pull request still carries `autorelease: pending` — precisely the
+"cut but never tagged" state, detectable whether or not any release exists — and it fails
+if the manifest version and the newest release tag disagree. This check is what caught the
+recurrence: it failed the run, named the pull request, and forced the log to be read
+properly instead of accepting another silent green. Writing it also surfaced a trap worth
+more than the check itself: the obvious implementation, `gh pr list --state merged --label
+'autorelease: pending'`, returns zero *while the label is attached*, because `--label`
+routes the query through the search index, which lags. Tested against the real repository
+in both directions, it never fired. The label is therefore filtered locally from the plain
+listing. A check that cannot fail is worse than no check, because it also removes the
+suspicion that would have led someone to look.
 
-**S60. The same repository rebuild broke publishing, and the workflow reported success
-while never once pushing an image.** The original repository was renamed to
+*Residual gap:* the assertion proves the bookkeeping is consistent, not that the
+configuration is right. A repository that never releases anything satisfies it forever.
+
+**S60. The repository rebuild did break publishing, and the workflow reported success
+while never once pushing an image.** Unlike S59, this one really is the rename. The
+original repository was renamed to
 `starling-archive-private` and a new one took the name `starling`. GHCR package ownership
 follows the repository, not its name, so all five container packages stayed linked to the
 archived repository while the new one pushed to byte-identical paths — `github.repository`

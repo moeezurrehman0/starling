@@ -7,7 +7,6 @@
   "separate-pull-requests": false,
   "packages": {
     ".": {
-      "package-name": "starling",
       "changelog-path": "CHANGELOG.md"
     }
   },
