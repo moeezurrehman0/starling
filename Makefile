@@ -217,3 +217,22 @@ rollback-drill: ## Ship a deliberately broken canary and assert Argo Rollouts re
 .PHONY: rollback-drill-control
 rollback-drill-control: ## Control run — the same canary machinery must PROMOTE a healthy build
 	@./scripts/rollback-drill.sh --healthy
+
+.PHONY: aiops-selftest
+aiops-selftest: ## Offline two-sided test of the risk analyser — no cluster, AWS, model or network
+	@./scripts/aiops-selftest.sh
+
+.PHONY: risk-comment
+risk-comment: ## Plan the prod root against LocalStack and render the Terraform risk comment
+	@docker rm -f tfmock >/dev/null 2>&1 || true
+	@docker run -d --name tfmock -p 4566:4566 -e SERVICES=sts,iam,ec2 \
+		localstack/localstack:3.8 >/dev/null
+	@until curl -sf http://localhost:4566/_localstack/health >/dev/null; do sleep 2; done
+	@./scripts/tf-plan-mock.sh infra/terraform/envs/prod /tmp/prod-plan.json
+	@python3 tools/aiops/risk_comment.py --plan /tmp/prod-plan.json \
+		--title 'Tier P (production root, never applied)'
+	@docker rm -f tfmock >/dev/null 2>&1 || true
+
+.PHONY: triage
+triage: ## Draft a probable cause for a firing alert; ALERT=<path to Alertmanager payload>
+	@python3 tools/aiops/triage.py --alert $${ALERT:-tools/aiops/fixtures/alert.json}

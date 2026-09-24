@@ -1,0 +1,24 @@
+{
+  "check_type": "terraform",
+  "results": {
+    "passed_checks": [],
+    "failed_checks": [
+      {
+        "check_id": "CKV_AWS_23",
+        "check_name": "Ensure every security group rule has a description",
+        "severity": "LOW",
+        "resource": "aws_security_group.gateway",
+        "file_path": "/envs/prod/network.tf",
+        "file_line_range": [42, 58]
+      },
+      {
+        "check_id": "CKV_AWS_260",
+        "check_name": "Ensure no security groups allow ingress from 0.0.0.0/0 to port 80",
+        "severity": "HIGH",
+        "resource": "aws_security_group.gateway",
+        "file_path": "/envs/prod/network.tf",
+        "file_line_range": [42, 58]
+      }
+    ]
+  }
+}

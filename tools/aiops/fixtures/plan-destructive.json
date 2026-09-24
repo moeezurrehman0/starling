@@ -1,0 +1,206 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "resource_changes": [
+    {
+      "address": "module.dynamodb.aws_dynamodb_table.tweets",
+      "mode": "managed",
+      "type": "aws_dynamodb_table",
+      "name": "tweets",
+      "action_reason": "replace_because_cannot_update",
+      "change": {
+        "actions": [
+          "delete",
+          "create"
+        ],
+        "replace_paths": [
+          [
+            "hash_key"
+          ]
+        ],
+        "before": {
+          "name": "tweets",
+          "hash_key": "pk",
+          "deletion_protection_enabled": true,
+          "point_in_time_recovery": [
+            {
+              "enabled": true
+            }
+          ]
+        },
+        "after": {
+          "name": "tweets",
+          "hash_key": "tweet_id",
+          "deletion_protection_enabled": false,
+          "point_in_time_recovery": [
+            {
+              "enabled": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "module.alb.aws_lb.public",
+      "mode": "managed",
+      "type": "aws_lb",
+      "name": "public",
+      "change": {
+        "actions": [
+          "create",
+          "delete"
+        ],
+        "replace_paths": [
+          [
+            "subnets"
+          ]
+        ],
+        "before": {
+          "name": "twitter-public",
+          "enable_deletion_protection": true
+        },
+        "after": {
+          "name": "twitter-public",
+          "enable_deletion_protection": false
+        }
+      }
+    },
+    {
+      "address": "module.network.aws_security_group.gateway",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "gateway",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "name": "gateway",
+          "ingress": [
+            {
+              "from_port": 443,
+              "cidr_blocks": [
+                "10.0.0.0/16"
+              ]
+            }
+          ]
+        },
+        "after": {
+          "name": "gateway",
+          "ingress": [
+            {
+              "from_port": 443,
+              "cidr_blocks": [
+                "10.0.0.0/16"
+              ]
+            },
+            {
+              "from_port": 22,
+              "cidr_blocks": [
+                "0.0.0.0/0"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "module.irsa.aws_iam_role_policy.tweet_service",
+      "mode": "managed",
+      "type": "aws_iam_role_policy",
+      "name": "tweet_service",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "name": "tweet-service"
+        },
+        "after": {
+          "name": "tweet-service"
+        }
+      }
+    },
+    {
+      "address": "module.storage.aws_s3_bucket.media",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "media",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "bucket": "twitter-media",
+          "force_destroy": false
+        },
+        "after": {
+          "bucket": "twitter-media",
+          "force_destroy": true
+        }
+      }
+    },
+    {
+      "address": "module.network.aws_nat_gateway.a",
+      "mode": "managed",
+      "type": "aws_nat_gateway",
+      "name": "a",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "allocation_id": "eipalloc-1"
+        },
+        "after": null
+      }
+    },
+    {
+      "address": "module.observability.aws_cloudwatch_log_group.audit",
+      "mode": "managed",
+      "type": "aws_cloudwatch_log_group",
+      "name": "audit",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "name": "/twitter/audit"
+        },
+        "after": null
+      }
+    },
+    {
+      "address": "module.irsa.aws_iam_policy.admin",
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "admin",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "twitter-clone-prod-admin",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"s3:*\", \"Resource\": \"*\"}, {\"Effect\": \"Allow\", \"Action\": [\"dynamodb:GetItem\"], \"Resource\": \"*\"}]}"
+        }
+      }
+    },
+    {
+      "address": "module.irsa.aws_iam_role.cross_account",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "cross_account",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "twitter-clone-prod-cross-account",
+          "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"*\"}, \"Action\": \"sts:AssumeRole\"}]}"
+        }
+      }
+    }
+  ]
+}

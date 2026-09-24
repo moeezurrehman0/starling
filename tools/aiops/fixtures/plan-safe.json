@@ -1,0 +1,120 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "resource_changes": [
+    {
+      "address": "module.observability.aws_cloudwatch_log_group.app",
+      "mode": "managed",
+      "type": "aws_cloudwatch_log_group",
+      "name": "app",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "/twitter/app",
+          "retention_in_days": 14
+        }
+      }
+    },
+    {
+      "address": "module.dynamodb.aws_dynamodb_table.tweets",
+      "mode": "managed",
+      "type": "aws_dynamodb_table",
+      "name": "tweets",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "name": "tweets",
+          "deletion_protection_enabled": true,
+          "point_in_time_recovery": [
+            {
+              "enabled": true
+            }
+          ]
+        },
+        "after": {
+          "name": "tweets",
+          "deletion_protection_enabled": true,
+          "point_in_time_recovery": [
+            {
+              "enabled": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "data.aws_caller_identity.current",
+      "mode": "data",
+      "type": "aws_caller_identity",
+      "name": "current",
+      "change": {
+        "actions": [
+          "read"
+        ],
+        "before": null,
+        "after": {}
+      }
+    },
+    {
+      "address": "data.aws_security_group.shared",
+      "mode": "data",
+      "type": "aws_security_group",
+      "name": "shared",
+      "change": {
+        "actions": [
+          "read"
+        ],
+        "before": null,
+        "after": {
+          "id": "sg-0shared",
+          "ingress": [
+            {
+              "from_port": 22,
+              "cidr_blocks": [
+                "0.0.0.0/0"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_eks_node_group.default",
+      "mode": "managed",
+      "type": "aws_eks_node_group",
+      "name": "default",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "node_group_name": "default"
+        },
+        "after": {
+          "node_group_name": "default"
+        }
+      }
+    },
+    {
+      "address": "module.irsa.aws_iam_role.timeline_service",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "timeline_service",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "twitter-clone-prod-timeline-service",
+          "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:aws:iam::111122223333:oidc-provider/oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B716D3041E\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\"}]}"
+        }
+      }
+    }
+  ]
+}

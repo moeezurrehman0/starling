@@ -35,6 +35,11 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+# ...except the one the CI risk commenter needs. It is stored outside both
+# Terraform roots and copied in by scripts/tf-plan-mock.sh, which removes it on
+# a trap. The blanket ignore above is right -- an override inside a root would
+# point a real apply at a mock endpoint -- so this is a deliberate, narrow hole.
+!infra/terraform/ci/mock_override.tf
 .terraformrc
 terraform.rc
 *.tfvars

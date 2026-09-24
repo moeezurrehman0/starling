@@ -48,7 +48,7 @@ Tiers: **L** local (compose + kind), **S** sandbox (KodeKloud EKS), **P** produc
 | 17 | **HA / DR** | none — single AZ, entirely ephemeral | multi-AZ, enforced PDBs, RDS PITR, documented RTO/RPO, cross-region backup | ADR records the accepted risk; `terraform test` asserts multi-AZ |
 | 18 | **Cost governance** | free and time-boxed | tagging convention, budgets, anomaly alerts | **Infracost posts the true prod cost on every pull request** |
 | 19 | **Image supply chain** | identical to production | cosign keyless signing, SBOM, Trivy gate, ECR scan-on-push, immutable tags | **no gap — identical in all three tiers, and now verified rather than asserted**: `make image-verify` starts the real container and checks context refresh, a live TLS handshake to AWS, CDS mapping, absence of any shell or package manager (every filesystem entry scanned), and the `nonroot` UID |
-| 20 | **AIOps** | Bedrock unavailable | Bedrock agent with a read-only IRSA role | provider-pluggable; the CI risk commenter needs no AWS at all |
+| 20 | **AIOps** | Bedrock unavailable; `AIOPS_PROVIDER=none` renders the comment from the template and says so in its footer | `AIOPS_PROVIDER=bedrock` against a read-only IRSA role — a config swap, no code change | `providers.py` is pluggable and lazily imports `boto3`; the CI risk commenter plans the prod root against LocalStack and so needs **no AWS in any tier**. Severity is decided by `risk.py`, never by a model — see `docs/07-aiops.md` |
 | 21 | **Session lifetime** | **180 minutes**, everything destroyed afterwards | permanent | forces every operation to be a scripted, idempotent, time-budgeted target — kept as a virtue, not a workaround |
 | 22 | **Metrics backend** | self-hosted Prometheus on `emptyDir`, 2h retention | Amazon Managed Prometheus, 150-day retention, cross-account | `prometheus-rules.yaml` is the promoted artefact: recording rules and alert expressions transfer to AMP unchanged. The scrape config and storage do not, and are not pretended to. |
 | 23 | **Dashboards** | Grafana with anonymous admin and no auth | Amazon Managed Grafana behind IAM Identity Center, SAML groups | datasource and derived-field wiring is identical; only the auth story differs, and shipping one for a disposable cluster would be effort spent on the part that is thrown away |
@@ -580,6 +580,30 @@ deliberately broken build and **asserts that the gate rejects it**. A control th
 been observed rejecting anything is a hypothesis. The corresponding control run
 (`--healthy`) matters just as much, because a gate that rejects everything is equally
 useless and looks identical in a one-sided test.
+
+**40. A correct report can still be a useless one.** The risk commenter's first run against
+the real production root produced 25 identical `medium` findings — one per IAM resource,
+each saying `aws_iam_role changes who can do what`. Every one was accurate: the root is
+greenfield, so every role in the design is a create, and creating a role does change who
+can do what. A reviewer reads that table once, concludes the section is boilerplate, and
+collapses it permanently — at which point the tool detects nothing while reporting full
+coverage. That is the same **fail-open** outcome as rows 32–39 reached from the opposite
+direction: those gates failed open by measuring nothing, this one would have failed open by
+measuring everything. *Control:* type-based flagging is replaced by a content check on
+created security resources (wildcard action, wildcard principal, open ingress); modified
+ones still get the generic finding, because there the risk is in the delta; clean creates
+are **counted and disclosed, not silently dropped**. 25 findings became 2, and both
+survivors are real. *Gap:* none — the control is identical in all three tiers.
+
+**41. A test suite proves nothing until it has been seen to fail.** `aiops-selftest.sh` was
+green at 52 assertions. Five mutations were then introduced into `risk.py` one at a time;
+four were caught and the fifth — deleting the `mode != "managed"` filter, which makes the
+tool report findings for data sources describing infrastructure the plan does not touch —
+was not. *Control:* the safe fixture now contains a `data "aws_security_group"` admitting
+`0.0.0.0/0` for the sole purpose of making that filter load-bearing, and the mutation now
+produces four failures. *Gap:* none, but the practice generalises — every assertion count
+quoted anywhere in this repository should be read as "untested" until someone has watched
+it go red.
 
 ---
 

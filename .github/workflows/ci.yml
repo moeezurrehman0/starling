@@ -299,6 +299,134 @@ jobs:
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  # ---------------------------------------------------------------------------
+  # AIOps (Phase 12).
+  #
+  # Two things happen here, and only the first one gates.
+  #
+  #   1. `aiops-selftest.sh` is a correctness gate and blocks. It is offline --
+  #      no cluster, no AWS, no model, no network -- so it is fast and cannot
+  #      flake. It asserts in both directions: a dangerous plan must raise the
+  #      findings, and a safe plan must stay silent.
+  #
+  #   2. The risk comment is *advisory* and must never fail the build. It is a
+  #      second opinion for a human reviewer, and a second opinion that can
+  #      block a merge stops being advice. `continue-on-error` is deliberate.
+  #
+  # The plan it comments on is real: `tf-plan-mock.sh` plans the production root
+  # against a LocalStack container, so the module wiring, `for_each` expansion
+  # and rendered IAM policy documents are all genuinely evaluated on a runner
+  # with no AWS credentials. See `docs/07-aiops.md`.
+  aiops:
+    name: AIOps
+    needs: changes
+    if: >-
+      needs.changes.outputs.terraform == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Self-test (blocking)
+        run: ./scripts/aiops-selftest.sh
+
+      - uses: hashicorp/setup-terraform@v3
+        if: github.event_name == 'pull_request'
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      # Only STS, IAM and EC2 are needed; starting the rest costs startup time
+      # for services no data source in these roots calls.
+      - name: Start LocalStack
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          docker run -d --name tfmock -p 4566:4566 \
+            -e SERVICES=sts,iam,ec2 localstack/localstack:3.8
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:4566/_localstack/health >/dev/null; then
+              echo "localstack ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "localstack did not become ready" >&2
+          exit 1
+
+      - name: Plan the production root
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        id: plan
+        run: ./scripts/tf-plan-mock.sh infra/terraform/envs/prod /tmp/prod-plan.json
+
+      # Checkov already runs in the `terraform` job as a gate. Re-running it here
+      # in JSON form folds its findings into the same comment, so a reviewer
+      # reads one list instead of correlating a comment with a log.
+      - name: Checkov (report only)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          pip install --quiet checkov
+          checkov -d infra/terraform/envs/prod --compact --quiet \
+            -o json --output-file-path /tmp 2>/dev/null || true
+          test -f /tmp/results_json.json || echo '{}' > /tmp/results_json.json
+
+      - name: Render the risk comment
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          # Unset in this repository, so the comment renders from the template
+          # and says so. A template-only comment is still useful; one that
+          # pretended a model wrote it would not be.
+          AIOPS_PROVIDER: ${{ vars.AIOPS_PROVIDER || 'none' }}
+          AIOPS_API_KEY: ${{ secrets.AIOPS_API_KEY }}
+        run: |
+          set -euo pipefail
+          python3 tools/aiops/risk_comment.py \
+            --plan /tmp/prod-plan.json \
+            --checkov /tmp/results_json.json \
+            --title 'Tier P (production root, never applied)' \
+            > /tmp/risk-comment.md
+          cat /tmp/risk-comment.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Post or update the comment
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- aiops:terraform-risk -->';
+            let body;
+            try {
+              body = fs.readFileSync('/tmp/risk-comment.md', 'utf8');
+            } catch {
+              core.info('no comment was rendered; nothing to post');
+              return;
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const existing = await github.paginate(
+              github.rest.issues.listComments, { owner, repo, issue_number });
+            const mine = existing.find(c => c.body && c.body.includes(marker));
+            if (mine) {
+              // Update in place. A new comment per push turns a busy PR into a
+              // wall of near-identical tables that reviewers learn to collapse.
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number, body });
+            }
+
+      - name: Stop LocalStack
+        if: always() && github.event_name == 'pull_request'
+        run: docker rm -f tfmock || true
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     needs: changes
@@ -506,7 +634,7 @@ jobs:
   verdict:
     name: CI
     if: always()
-    needs: [changes, java, web, secrets, scripts, helm, terraform, cost, codeql, images, e2e]
+    needs: [changes, java, web, secrets, scripts, helm, terraform, cost, aiops, codeql, images, e2e]
     runs-on: ubuntu-latest
     steps:
       # The single required check for branch protection. Listing the individual jobs there
