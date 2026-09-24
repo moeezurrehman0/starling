@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S57`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S58`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S57`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S58`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -931,6 +931,36 @@ looks. That probe makes one kind of call; a module needed only by some other cod
 a retry, a checksum algorithm, a credential provider not used at startup — would still
 reach production as a `NoClassDefFoundError` on first use, and no gate here would have
 said otherwise.
+
+**S58. A grouped bump split one decision across two groups, and the majors underneath were
+not ready.** Next 15 → 16 arrived as two pull requests: `next` in the "next" group and
+`eslint-config-next` in "dev-dependencies". They are released together and versioned
+together, and neither PR can pass without the other — the same shape as S56, reached by a
+different route. Grouping is configured by where a dependency sits in `package.json`, and
+a framework that ships its lint config as a devDependency does not fit that. The upgrade
+had to be assembled by hand, which is the general lesson: a bot can group by
+configuration, but coupling is a property of the release, not of the manifest.
+
+The upgrade itself found three things no version number advertised. Next 16 removed
+ESLint from the build and the `eslint` key from `NextConfig`, so `next.config.ts` became a
+type error — the lint gate survived only because the web job already ran `npm run lint` as
+a separate step, which was luck rather than foresight. `eslint-config-next` 16 ships flat
+config natively, so the `FlatCompat` shim around it stopped working: the validator
+`JSON.stringify`s the config and the native one holds a cycle through the react plugin.
+And the new ruleset caught a real defect that had been in `Composer.tsx` since it was
+written — a `useEffect` calling `setText("")`, which resets the box in a second render
+after the browser has already painted the first. It is now a render-time reset guarded by
+the previous value, which React restarts before committing.
+
+Two bumps were *not* taken, and refusing them is part of the result. TypeScript 7 is
+rejected by `typescript-eslint` outright, and ESLint 10 breaks `eslint-plugin-react`
+inside `eslint-config-next` on an API change. Both are held at their current majors.
+*Gap, now closed:* a held-back dependency looks exactly like one nobody has looked at, so
+both are now `ignore` entries in `.github/dependabot.yml` carrying the reason and the
+condition for revisiting, and `eslint-config-next` has been moved into the `next` group so
+the next release of that framework arrives as one pull request. What does not generalise
+is the grouping fix — it works because this coupling is known. An unknown one still
+arrives as two PRs that each fail for reasons that do not mention each other.
 
 ---
 

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import { postTweetAction } from "@/app/actions";
@@ -34,11 +34,21 @@ export function Composer() {
 
   // Clear only on a confirmed success. Clearing optimistically would discard what the user
   // wrote when the post was rejected.
-  useEffect(() => {
+  //
+  // This was a useEffect that called setText(""), which is the obvious way to write it and
+  // the wrong one: an effect runs after the browser has already painted the committed state,
+  // so the cleared box is a second render the user can in principle see. React's documented
+  // way to reset state in response to a changed value is to do it during render, guarded by
+  // the previous value held in state -- React discards the in-progress render and restarts
+  // before committing anything, so there is no extra paint. The lint rule
+  // react-hooks/set-state-in-effect, new in this eslint-config-next, is what surfaced it.
+  const [clearedAt, setClearedAt] = useState(state.succeededAt);
+  if (state.succeededAt !== clearedAt) {
+    setClearedAt(state.succeededAt);
     if (state.succeededAt) {
       setText("");
     }
-  }, [state.succeededAt]);
+  }
 
   // Code points, so an emoji counts once — the same unit tweet-service validates in.
   const used = [...text].length;
