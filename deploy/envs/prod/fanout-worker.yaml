@@ -2,7 +2,7 @@ name: fanout-worker
 port: 8084
 
 image:
-  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/fanout-worker
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/starling/fanout-worker
   tag: sha-0000000
 
 # One replica, for the same reason as the indexer: uncoordinated shard ownership.
@@ -20,7 +20,7 @@ service:
   enabled: false
 
 serviceAccount:
-  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-fanout-worker
+  roleArn: arn:aws:iam::000000000000:role/starling-prod-fanout-worker
 
 networkPolicy:
   allowFrom: []

@@ -47,8 +47,8 @@ data:
   dashboards.yaml: |
     apiVersion: 1
     providers:
-      - name: twitterclone
-        folder: twitter-clone
+      - name: starling
+        folder: starling
         type: file
         # Dashboards are files in the repository, provisioned read-only. Editing
         # one in the UI and not exporting it is how a dashboard becomes something

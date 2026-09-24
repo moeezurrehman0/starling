@@ -92,8 +92,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
   labels:
-    app.kubernetes.io/part-of: twitter-clone
-    twitterclone.io/env: {{ $.Values.env }}
+    app.kubernetes.io/part-of: starling
+    starling.io/env: {{ $.Values.env }}
 spec:
   project: default
   source:

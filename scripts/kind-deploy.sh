@@ -9,8 +9,8 @@
 # a UI two minutes later.
 set -euo pipefail
 
-CLUSTER="${CLUSTER:-twitter-clone}"
-NS="${NS:-twitter-clone}"
+CLUSTER="${CLUSTER:-starling}"
+NS="${NS:-starling}"
 TAG="${TAG:-sha-local}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICES=(gateway user-service tweet-service timeline-service fanout-worker web)
@@ -39,13 +39,13 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   "$ROOT/gradlew" -p "$ROOT" bootJar -x test -x integrationTest --console=plain -q
 
   for svc in "${SERVICES[@]}"; do
-    log "building image twitterclone/$svc:$TAG"
+    log "building image starling/$svc:$TAG"
     if [ "$svc" = "web" ]; then
       # Context is the repo root, not web/. Dockerfile.web does `COPY web/ ./`
       # -- the same context compose.yaml uses. Narrowing it to web/ looks tidier
       # and fails with "/web: not found", which reads like a missing directory
       # rather than a context that is one level too deep.
-      docker build -q -f "$ROOT/docker/Dockerfile.web" -t "twitterclone/web:$TAG" "$ROOT" >/dev/null
+      docker build -q -f "$ROOT/docker/Dockerfile.web" -t "starling/web:$TAG" "$ROOT" >/dev/null
     else
       # The glob matches both the boot jar and the -plain.jar Gradle also emits.
       # Picking the wrong one produces an image that builds, starts, and exits
@@ -60,7 +60,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         --build-arg "SERVICE=$svc" \
         --build-arg "JAR_FILE=${jar#"$ROOT/"}" \
         --build-arg "GIT_SHA=$(git -C "$ROOT" rev-parse --short HEAD)" \
-        -t "twitterclone/$svc:$TAG" "$ROOT" >/dev/null
+        -t "starling/$svc:$TAG" "$ROOT" >/dev/null
     fi
   done
 fi
@@ -69,10 +69,10 @@ fi
 #
 # kind nodes have their own containerd; an image in the host daemon is invisible
 # to them. Without this the pods sit in ErrImagePull against a registry that has
-# never heard of twitterclone/*.
+# never heard of starling/*.
 log "loading images into the cluster"
 for svc in "${SERVICES[@]}"; do
-  kind load docker-image "twitterclone/$svc:$TAG" --name "$CLUSTER"
+  kind load docker-image "starling/$svc:$TAG" --name "$CLUSTER"
 done
 
 # --- deploy -----------------------------------------------------------------
@@ -117,10 +117,10 @@ kubectl label ns observability-agents --overwrite \
 # from exactly the same place it will in Tier P, where External Secrets Operator
 # produces this name from Secrets Manager.
 log "applying the dev secret"
-kubectl create secret generic twitter-clone-secrets -n "$NS" \
+kubectl create secret generic starling-secrets -n "$NS" \
   --from-literal=AWS_ACCESS_KEY_ID=test \
   --from-literal=AWS_SECRET_ACCESS_KEY=test \
-  --from-literal=SEARCH_DB_PASSWORD=twitter \
+  --from-literal=SEARCH_DB_PASSWORD=starling \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 log "installing dev-infra"
@@ -206,7 +206,7 @@ kubectl wait --for=condition=complete --timeout=300s -n "$NS" job/create-tables
 
 for svc in "${SERVICES[@]}" tweet-indexer; do
   log "installing $svc"
-  img="twitterclone/${svc/tweet-indexer/tweet-service}"
+  img="starling/${svc/tweet-indexer/tweet-service}"
   # The image id, as a pod annotation.
   #
   # Without it a rebuild deploys nothing. TAG is fixed (`sha-local`), so a code
@@ -226,7 +226,7 @@ for svc in "${SERVICES[@]}" tweet-indexer; do
     --set "image.repository=$img" \
     --set "image.tag=$TAG" \
     --set image.pullPolicy=Never \
-    --set "podAnnotations.twitterclone\.dev/image-id=$digest"
+    --set "podAnnotations.starling\.dev/image-id=$digest"
 done
 
 # NodePort for the frontend, matching the extraPortMapping in the kind config.

@@ -75,7 +75,7 @@ most one consumer per shard within a group, so a fourth replica against three
 shards is idle.
 
 ```
-kubectl -n twitter-clone scale deployment/fanout-worker --replicas=<n>
+kubectl -n starling scale deployment/fanout-worker --replicas=<n>
 ```
 
 If the cause is a celebrity write, this is expected behaviour rather than a

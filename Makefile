@@ -42,7 +42,7 @@ clean: ## Remove build output
 # ---------------------------------------------------------------------------
 SERVICE   ?= gateway
 IMAGE_TAG ?= dev
-IMAGE     := twitterclone/$(SERVICE):$(IMAGE_TAG)
+IMAGE     := starling/$(SERVICE):$(IMAGE_TAG)
 
 .PHONY: image
 image: ## Build the jlink+CDS distroless image for SERVICE=<name>
@@ -54,7 +54,7 @@ image: ## Build the jlink+CDS distroless image for SERVICE=<name>
 	  --build-arg BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
 	  -t $(IMAGE) .
 
-WEB_IMAGE := twitterclone/web:$(IMAGE_TAG)
+WEB_IMAGE := starling/web:$(IMAGE_TAG)
 
 .PHONY: image-web
 image-web: ## Build the distroless Node image for the Next.js frontend
@@ -135,7 +135,7 @@ down-hard: ## Stop the local stack and delete its volumes
 
 .PHONY: tables
 tables: ## Re-run the DynamoDB table bootstrap against the running stack
-	docker compose exec -T localstack python3 /opt/twitter-tools/localstack/create-tables.py
+	docker compose exec -T localstack python3 /opt/starling-tools/localstack/create-tables.py
 
 .PHONY: kind-up
 kind-up: ## Create the local kind cluster (Calico + ArgoCD) — CNI=kindnet to skip Calico
@@ -147,7 +147,7 @@ kind-deploy: ## Build, load and helm-install every chart onto the kind cluster
 
 .PHONY: kind-down
 kind-down: ## Delete the local kind cluster
-	kind delete cluster --name $${CLUSTER:-twitter-clone}
+	kind delete cluster --name $${CLUSTER:-starling}
 
 .PHONY: helm-lint
 helm-lint: ## Lint and render every chart for every environment, then schema-check it

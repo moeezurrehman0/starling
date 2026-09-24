@@ -27,6 +27,18 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 command -v helm >/dev/null || { echo "helm is required"; exit 1; }
 command -v kubeconform >/dev/null || { echo "kubeconform is required"; exit 1; }
 
+# PyYAML is an ambient dependency: every structural check below shells out to a
+# helper in scripts/lib that imports yaml. Without this guard a missing module
+# is not one error, it is eighteen identical tracebacks interleaved with real
+# findings, and the reader's first instinct is that the rename or the chart
+# broke rather than the interpreter. Homebrew installing an unrelated formula is
+# enough to shadow python3 with one that has no site-packages.
+python3 -c 'import yaml' >/dev/null 2>&1 || {
+  echo "PyYAML is required (python3 -m pip install pyyaml)"
+  echo "  interpreter in use: $(command -v python3)"
+  exit 1
+}
+
 # CRD schemas.
 #
 # kubeconform only knows the built-in API groups, so an Argo Rollouts `Rollout`

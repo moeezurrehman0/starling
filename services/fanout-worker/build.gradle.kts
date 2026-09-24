@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.spring-service-conventions")
+    id("starling.spring-service-conventions")
 }
 
 description = "Consumes the tweets DynamoDB stream and materialises follower timelines."

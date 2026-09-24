@@ -30,7 +30,7 @@ common.
 1. **Is the pod running.**
 
    ```
-   kubectl -n twitter-clone get pods -l app=<app>
+   kubectl -n starling get pods -l app=<app>
    ```
 
    Gone or `CrashLoopBackOff` — this is an application incident, and `TargetDown`

@@ -8,7 +8,7 @@
 image:
   # ECR, not GHCR. The sandbox pulls from GHCR because ECR needs a durable
   # registry and an IAM role the playground wipes; gap-register row 4.
-  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/starling
 
 replicaCount: 3
 
@@ -37,4 +37,4 @@ secretEnv:
   # Same name as dev. The difference is entirely in who writes it: dev applies a
   # manifest, prod has External Secrets Operator project it from Secrets Manager.
   # The workload cannot tell, which is the point — the rollout path is identical.
-  secretName: twitter-clone-secrets
+  secretName: starling-secrets

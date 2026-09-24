@@ -8,7 +8,7 @@
 # Build context is the repository root, matching the JVM image, so both are
 # driven the same way from the Makefile:
 #
-#   docker build -f docker/Dockerfile.web -t twitterclone/web:dev .
+#   docker build -f docker/Dockerfile.web -t starling/web:dev .
 #
 # Use `make image-web`.
 #
@@ -75,8 +75,8 @@ FROM ${NODE_IMAGE} AS fallback
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=1970-01-01T00:00:00Z
 
-LABEL org.opencontainers.image.title="twitterclone-web" \
-      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+LABEL org.opencontainers.image.title="starling-web" \
+      org.opencontainers.image.source="https://github.com/starling/platform" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_TIME}" \
       org.opencontainers.image.base.name="node:22-alpine"
@@ -108,8 +108,8 @@ ARG GIT_SHA=unknown
 ARG BUILD_TIME=1970-01-01T00:00:00Z
 ARG RUNTIME_BASE
 
-LABEL org.opencontainers.image.title="twitterclone-web" \
-      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+LABEL org.opencontainers.image.title="starling-web" \
+      org.opencontainers.image.source="https://github.com/starling/platform" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_TIME}" \
       org.opencontainers.image.base.name="${RUNTIME_BASE}"

@@ -6,7 +6,7 @@
 # node count is the cheapest way to make Tier L failures predict Tier S failures.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: twitter-clone
+name: starling
 networking:
   # kindnet does not implement NetworkPolicy. It accepts the objects, reports
   # them created, and enforces nothing -- so a default-deny policy that is

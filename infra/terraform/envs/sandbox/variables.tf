@@ -7,13 +7,13 @@ variable "region" {
 variable "name" {
   description = "Name prefix for every resource in this root."
   type        = string
-  default     = "twitter-clone-sbx"
+  default     = "starling-sbx"
 }
 
 variable "namespace" {
   description = "Kubernetes namespace the workloads run in."
   type        = string
-  default     = "twitter-clone"
+  default     = "starling"
 }
 
 variable "cluster_role_arn" {

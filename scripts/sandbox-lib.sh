@@ -33,7 +33,7 @@ SANDBOX_ROOT="infra/terraform/envs/sandbox"
 # shellcheck disable=SC2034
 SANDBOX_TAG_KEY="Project"
 # shellcheck disable=SC2034
-SANDBOX_TAG_VALUE="twitter-clone"
+SANDBOX_TAG_VALUE="starling"
 
 c_red=$'\033[31m'; c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
 

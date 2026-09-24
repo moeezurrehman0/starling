@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "chirp",
-  description: "A Twitter clone, built as the payload for an end-to-end delivery pipeline",
+  description: "A microblogging product, built as the payload for an end-to-end delivery pipeline",
 };
 
 /**

@@ -3,7 +3,7 @@
 mock_provider "aws" {}
 
 variables {
-  name     = "twitter-clone"
+  name     = "starling"
   services = ["gateway", "user-service", "tweet-service", "timeline-service", "fanout-worker", "web"]
 }
 

@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.java-conventions")
+    id("starling.java-conventions")
     // Consumed, never run -- same reasoning as services/contracts and services/platform-aws.
     id("java-library")
 }

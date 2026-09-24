@@ -41,7 +41,7 @@ normal case of a freshly-started pod that has not yet made its first call.
    available:
 
    ```
-   kubectl -n twitter-clone logs deployment/fanout-worker | grep -i stream
+   kubectl -n starling logs deployment/fanout-worker | grep -i stream
    ```
 
 3. **Check the table actually has a stream enabled.** A table recreated without

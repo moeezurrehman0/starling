@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.spring-service-conventions")
+    id("starling.spring-service-conventions")
 }
 
 description = "Edge service: routing, authentication, rate limiting and API versioning."

@@ -27,7 +27,7 @@ terraform {
   # the same job with one fewer resource and one fewer thing to forget.
   #
   # backend "s3" {
-  #   bucket       = "twitter-clone-tfstate"
+  #   bucket       = "starling-tfstate"
   #   key          = "prod/terraform.tfstate"
   #   region       = "eu-central-1"
   #   encrypt      = true

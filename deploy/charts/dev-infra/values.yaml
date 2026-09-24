@@ -29,9 +29,9 @@ redis:
     policy: volatile-ttl
 postgres:
   image: postgres:17-alpine
-  db: twitter_search
-  user: twitter
-  password: twitter
+  db: starling_search
+  user: starling
+  password: starling
 localstack:
   image: localstack/localstack:3.8
   services: dynamodb,s3

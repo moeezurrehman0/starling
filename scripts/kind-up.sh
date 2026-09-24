@@ -16,7 +16,7 @@
 #      repo is inert and nothing says so.
 set -euo pipefail
 
-CLUSTER="${CLUSTER:-twitter-clone}"
+CLUSTER="${CLUSTER:-starling}"
 CNI="${CNI:-calico}"
 METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-0.7.2}"
 ARGO_ROLLOUTS_VERSION="${ARGO_ROLLOUTS_VERSION:-1.7.2}"

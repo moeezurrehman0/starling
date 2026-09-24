@@ -16,7 +16,7 @@
 //   is how real traffic behaves. When the system slows, the queue grows and the
 //   measurement shows it.
 //
-// The read:write mix is 4:1. Twitter-shaped products are overwhelmingly
+// The read:write mix is 4:1. Microblog-shaped products are overwhelmingly
 // read-dominated; a 1:1 mix would size the write path for traffic that does not
 // exist and hide the read path behind it.
 

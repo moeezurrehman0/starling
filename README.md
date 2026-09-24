@@ -1,6 +1,6 @@
-# Twitter Clone — End-to-End DevOps on AWS
+# Starling — End-to-End DevOps on AWS
 
-A Twitter-like product built as the vehicle for a complete software delivery system:
+A microblogging product built as the vehicle for a complete software delivery system:
 GitHub + GitHub Actions for SDLC and CI, Terraform for AWS infrastructure, Kubernetes
 (EKS) as the runtime, ArgoCD for GitOps delivery, and a full observability stack.
 

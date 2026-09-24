@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.java-conventions")
+    id("starling.java-conventions")
     // java-library for the same reason services/contracts is one: this module is consumed
     // rather than run, and its whole purpose is to hand the SDK client types to the services
     // that inject them.

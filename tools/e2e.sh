@@ -19,7 +19,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-NETWORK="${COMPOSE_NETWORK:-twitter-clone_default}"
+NETWORK="${COMPOSE_NETWORK:-starling_default}"
 
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
   echo "network '$NETWORK' does not exist -- is the stack up? try: make up-app" >&2
@@ -44,7 +44,7 @@ exec docker run --rm -t \
   --ipc=host \
   --network "$NETWORK" \
   -v "$PWD/web:/work" \
-  -v twitterclone-e2e-node-modules:/work/node_modules \
+  -v starling-e2e-node-modules:/work/node_modules \
   -w /work \
   -e "WEB_URL=${WEB_URL:-http://web:3000}" \
   -e "GATEWAY_URL=${GATEWAY_URL:-http://gateway:8080}" \

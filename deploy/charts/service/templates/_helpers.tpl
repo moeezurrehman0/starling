@@ -24,7 +24,7 @@ running, wrong system, which is strictly worse than a template error.
 app.kubernetes.io/name: {{ include "service.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Values.image.tag | quote }}
-app.kubernetes.io/part-of: twitter-clone
+app.kubernetes.io/part-of: starling
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 

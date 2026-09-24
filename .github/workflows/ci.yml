@@ -57,7 +57,7 @@ jobs:
 
       # One invocation, and `build` rather than a split fast/slow pair. The split is
       # tempting -- a red "Unit tests" reads very differently from a red "Integration
-      # tests" -- but the coverage gate in twitterclone.java-conventions deliberately counts
+      # tests" -- but the coverage gate in starling.java-conventions deliberately counts
       # both suites together, so `check` depends on `integrationTest` regardless. Splitting
       # would therefore run the Testcontainers suite twice, once in each job, to buy a
       # nicer job name. The task name in the failure output already carries that signal.
@@ -221,6 +221,13 @@ jobs:
             https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           tar -xzf /tmp/kc.tar.gz -C /usr/local/bin kubeconform
           kubeconform -v
+
+      # PyYAML happens to be preinstalled on ubuntu-latest, which is exactly why
+      # it is pinned here: an undeclared dependency that works by luck breaks on
+      # the runner image bump, and the failure surfaces as chart errors rather
+      # than as a missing module.
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
 
       # Renders every service in every environment and schema-checks the result,
       # then asserts the invariants a schema cannot see: no HPA fighting a
@@ -603,7 +610,7 @@ jobs:
           # main, in release.yml -- a pull request must be able to build and scan an image
           # without being able to publish one.
           load: true
-          tags: twitterclone/${{ matrix.service }}:ci
+          tags: starling/${{ matrix.service }}:ci
           build-args: |
             SERVICE=${{ matrix.service }}
             JAR_FILE=services/${{ matrix.service }}/build/libs/${{ matrix.service }}.jar
@@ -617,15 +624,15 @@ jobs:
       # a module set that satisfies the compiler can still produce a container that dies on
       # its first call.
       - name: Verify
-        run: ./scripts/image-verify.sh twitterclone/${{ matrix.service }}:ci
+        run: ./scripts/image-verify.sh starling/${{ matrix.service }}:ci
 
       - name: Size gate
-        run: ./scripts/image-report.sh twitterclone/${{ matrix.service }}:ci
+        run: ./scripts/image-report.sh starling/${{ matrix.service }}:ci
 
       - name: Vulnerability scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: twitterclone/${{ matrix.service }}:ci
+          image-ref: starling/${{ matrix.service }}:ci
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH

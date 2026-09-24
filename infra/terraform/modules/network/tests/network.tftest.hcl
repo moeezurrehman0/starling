@@ -3,8 +3,8 @@
 mock_provider "aws" {}
 
 variables {
-  name         = "twitter-clone"
-  cluster_name = "twitter-clone"
+  name         = "starling"
+  cluster_name = "starling"
   region       = "eu-central-1"
   azs          = ["eu-central-1a", "eu-central-1b"]
 }

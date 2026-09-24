@@ -2,7 +2,7 @@ name: gateway
 port: 8080
 
 image:
-  repository: ghcr.io/twitter-clone/gateway
+  repository: ghcr.io/starling/gateway
   tag: sha-0000000
 
 networkPolicy:

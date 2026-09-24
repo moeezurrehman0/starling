@@ -76,7 +76,7 @@ logging:
     format:
       console: ecs
 
-twitterclone:
+starling:
   dynamodb:
     endpoint: ${DYNAMODB_ENDPOINT:}
     table-prefix: ${DYNAMODB_TABLE_PREFIX:}

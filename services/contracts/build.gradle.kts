@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.java-conventions")
+    id("starling.java-conventions")
     // java-library, not plain java: this module is consumed by the services rather than
     // being an application, and it needs the `api` configuration to pass the enhanced-client
     // types through to them. Applied here rather than in the convention plugin so that the

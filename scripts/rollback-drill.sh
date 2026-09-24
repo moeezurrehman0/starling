@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NS="${NS:-twitter-clone}"
+NS="${NS:-starling}"
 SVC="${SVC:-gateway}"
 MODE="${1:-broken}"
 OUT="${OUT:-$ROOT/build/rollout}"

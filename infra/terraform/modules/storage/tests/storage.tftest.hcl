@@ -3,7 +3,7 @@
 mock_provider "aws" {}
 
 variables {
-  name = "twitter-clone"
+  name = "starling"
 }
 
 run "the_bucket_is_private_on_all_four_switches" {

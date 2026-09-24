@@ -2,7 +2,7 @@ name: user-service
 port: 8081
 
 image:
-  repository: ghcr.io/twitter-clone/user-service
+  repository: ghcr.io/starling/user-service
   # Written by CI on merge to main. Never `latest` — the chart refuses it.
   tag: sha-0000000
 

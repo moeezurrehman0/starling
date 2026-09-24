@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Repository namespace, e.g. twitter-clone."
+  description = "Repository namespace, e.g. starling."
   type        = string
 }
 

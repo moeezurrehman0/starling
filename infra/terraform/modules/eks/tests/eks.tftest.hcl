@@ -20,7 +20,7 @@ mock_provider "aws" {
 mock_provider "tls" {}
 
 variables {
-  name            = "twitter-clone"
+  name            = "starling"
   subnet_ids      = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
   node_subnet_ids = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
 }

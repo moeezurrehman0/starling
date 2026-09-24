@@ -23,7 +23,7 @@ have reported an outage. A closed-model test cannot reproduce congestive collaps
 it is structurally incapable of overloading anything.
 
 An open model issues requests at a fixed rate regardless of whether the previous ones have
-come back. That is how real users behave: nobody pauses their Twitter habit because the
+come back. That is how real users behave: nobody abandons a social feed because the
 timeline is slow. If the service cannot keep up, the arrival rate exceeds the service rate,
 queues grow, and the test shows the cliff.
 

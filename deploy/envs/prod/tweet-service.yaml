@@ -2,11 +2,11 @@ name: tweet-service
 port: 8082
 
 image:
-  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/tweet-service
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/starling/tweet-service
   tag: sha-0000000
 
 serviceAccount:
-  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-tweet-service
+  roleArn: arn:aws:iam::000000000000:role/starling-prod-tweet-service
 
 networkPolicy:
   allowFrom: [gateway, timeline-service]
@@ -18,9 +18,9 @@ env:
   AWS_REGION: eu-central-1
   DYNAMODB_TABLE_PREFIX: prod-
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
-  SEARCH_DB_URL: jdbc:postgresql://twitter-clone-prod.cluster-xxxx.eu-central-1.rds.amazonaws.com:5432/twitter_search
-  SEARCH_DB_USER: twitter
-  MEDIA_BUCKET: twitterclone-prod-media
+  SEARCH_DB_URL: jdbc:postgresql://starling-prod.cluster-xxxx.eu-central-1.rds.amazonaws.com:5432/starling_search
+  SEARCH_DB_USER: starling
+  MEDIA_BUCKET: starling-prod-media
   USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
   # Off here too, and it matters more in prod: this Deployment autoscales to 20.
   SEARCH_INDEXER_ENABLED: "false"

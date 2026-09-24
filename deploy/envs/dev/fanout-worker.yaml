@@ -3,7 +3,7 @@ name: fanout-worker
 port: 8084
 
 image:
-  repository: ghcr.io/twitter-clone/fanout-worker
+  repository: ghcr.io/starling/fanout-worker
   tag: sha-0000000
 
 # Single replica for the same reason as the indexer: the consumer does not

@@ -50,7 +50,7 @@ data:
         # which cluster it came from. Without it, two environments feeding one Grafana
         # produce series that look like one flapping environment.
         tier: L
-        cluster: kind-twitter-clone
+        cluster: kind-starling
 
     rule_files:
       - /etc/prometheus/rules/*.yaml

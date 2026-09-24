@@ -136,7 +136,7 @@ def gather(alert: dict, prom: str, loki: str) -> tuple[dict, list[Evidence]]:
     # `job` is the Prometheus default. Trying all three means the tool still
     # works on alerts that predate the convention.
     svc = labels.get("service") or labels.get("app") or labels.get("job") or ""
-    ns = labels.get("namespace") or "twitter-clone"
+    ns = labels.get("namespace") or "starling"
 
     head = {
         "alertname": labels.get("alertname", "(unnamed)"),

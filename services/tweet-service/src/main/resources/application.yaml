@@ -14,9 +14,9 @@ spring:
     # Search only. The operational store is DynamoDB (ADR-0011); this database holds one table
     # of derived rows and is rebuildable from the stream, which is why it can be a single
     # instance with no replica and no backup story in any tier.
-    url: ${SEARCH_DB_URL:jdbc:postgresql://localhost:5432/twitter_search}
-    username: ${SEARCH_DB_USER:twitter}
-    password: ${SEARCH_DB_PASSWORD:twitter}
+    url: ${SEARCH_DB_URL:jdbc:postgresql://localhost:5432/starling_search}
+    username: ${SEARCH_DB_USER:starling}
+    password: ${SEARCH_DB_PASSWORD:starling}
     hikari:
       # Small on purpose. The pool serves search queries and one indexer thread; a large pool
       # in front of a small database converts a slow query into a connection storm.
@@ -103,7 +103,7 @@ logging:
     format:
       console: ecs
 
-twitterclone:
+starling:
   dynamodb:
     # Tier L only: points the client at LocalStack. Unset everywhere else so the SDK resolves
     # the real regional endpoint from the instance's credentials.
@@ -115,7 +115,7 @@ twitterclone:
     stream-arn: ${TWEETS_STREAM_ARN:}
     enabled: ${SEARCH_INDEXER_ENABLED:false}
   media:
-    bucket: ${MEDIA_BUCKET:twitterclone-media}
+    bucket: ${MEDIA_BUCKET:starling-media}
     endpoint: ${S3_ENDPOINT:}
     upload-ttl: 10m
     max-bytes: 5242880

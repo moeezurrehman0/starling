@@ -7,7 +7,7 @@
   "separate-pull-requests": false,
   "packages": {
     ".": {
-      "package-name": "twitter-clone",
+      "package-name": "starling",
       "changelog-path": "CHANGELOG.md"
     }
   },

@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NS="${NS:-twitter-clone}"
+NS="${NS:-starling}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.55.0}"
 SCENARIO="${1:-smoke}"
 PEAK_RPS="${2:-${PEAK_RPS:-20}}"
@@ -49,7 +49,7 @@ kubectl -n "$NS" create configmap k6-lib --from-file="$ROOT/load/lib" >/dev/null
 
 log "recording pre-test state"
 kubectl -n "$NS" get hpa -o wide > "$OUT/hpa-before.txt" 2>/dev/null || true
-kubectl -n "$NS" get pods -l app.kubernetes.io/part-of=twitter-clone > "$OUT/pods-before.txt" 2>/dev/null || true
+kubectl -n "$NS" get pods -l app.kubernetes.io/part-of=starling > "$OUT/pods-before.txt" 2>/dev/null || true
 
 kubectl -n "$NS" delete job "$JOB" --ignore-not-found --wait=true >/dev/null
 
@@ -64,14 +64,14 @@ metadata:
   name: $JOB
   labels:
     app.kubernetes.io/name: k6
-    app.kubernetes.io/part-of: twitter-clone
+    app.kubernetes.io/part-of: starling
 spec:
   backoffLimit: 0
   template:
     metadata:
       labels:
         app.kubernetes.io/name: k6
-        app.kubernetes.io/part-of: twitter-clone
+        app.kubernetes.io/part-of: starling
     spec:
       restartPolicy: Never
       securityContext:

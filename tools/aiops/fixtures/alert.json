@@ -8,12 +8,12 @@
         "alertname": "HighErrorRate",
         "severity": "critical",
         "app": "timeline-service",
-        "namespace": "twitter-clone"
+        "namespace": "starling"
       },
       "annotations": {
         "summary": "timeline-service is returning 5xx for more than 5% of requests",
         "description": "The error ratio has exceeded its SLO burn rate for 10 minutes.",
-        "runbook_url": "https://github.com/example/twitter/blob/main/docs/runbooks/high-error-rate.md"
+        "runbook_url": "https://github.com/example/starling/blob/main/docs/runbooks/high-error-rate.md"
       },
       "startsAt": "2026-01-15T09:12:00Z",
       "generatorURL": "http://prometheus:9090/graph?g0.expr=..."

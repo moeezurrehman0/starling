@@ -2,18 +2,18 @@ name: gateway
 port: 8080
 
 image:
-  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/gateway
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/starling/gateway
   tag: sha-0000000
 
 serviceAccount:
-  roleArn: arn:aws:iam::000000000000:role/twitter-clone-prod-gateway
+  roleArn: arn:aws:iam::000000000000:role/starling-prod-gateway
 
 networkPolicy:
   allowFrom: [web]
   allowTo: [user-service, tweet-service, timeline-service]
 
 env:
-  REDIS_MAIN_HOST: twitter-clone-prod-main.xxxx.ng.0001.euc1.cache.amazonaws.com
+  REDIS_MAIN_HOST: starling-prod-main.xxxx.ng.0001.euc1.cache.amazonaws.com
   REDIS_MAIN_PORT: "6379"
   USER_SERVICE_URL: http://user-service:8081
   TWEET_SERVICE_URL: http://tweet-service:8082

@@ -2,7 +2,7 @@ plugins {
     base
 }
 
-description = "Twitter clone — end-to-end DevOps delivery reference"
+description = "Starling — end-to-end DevOps delivery reference"
 
 // Aggregate coverage and quality across every service, so CI has one entry point.
 tasks.register("qualityCheck") {

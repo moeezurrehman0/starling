@@ -8,7 +8,7 @@ targetRevision: main
 # and, more importantly, which sync policy it gets.
 env: dev
 
-namespace: twitter-clone
+namespace: starling
 
 # Auto-sync with prune and self-heal. Correct for dev, wrong for prod.
 #

@@ -14,7 +14,7 @@
 #
 #   docker build -f docker/Dockerfile \
 #     --build-arg JAR_FILE=services/gateway/build/libs/gateway.jar \
-#     --build-arg SERVICE=gateway -t twitterclone/gateway:dev .
+#     --build-arg SERVICE=gateway -t starling/gateway:dev .
 #
 # Use `make image SERVICE=gateway`, which computes those arguments.
 # ---------------------------------------------------------------------------
@@ -126,8 +126,8 @@ ARG SERVICE
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=1970-01-01T00:00:00Z
 
-LABEL org.opencontainers.image.title="twitterclone-${SERVICE}" \
-      org.opencontainers.image.source="https://github.com/twitterclone/platform" \
+LABEL org.opencontainers.image.title="starling-${SERVICE}" \
+      org.opencontainers.image.source="https://github.com/starling/platform" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_TIME}" \
       org.opencontainers.image.base.name="${RUNTIME_BASE}"

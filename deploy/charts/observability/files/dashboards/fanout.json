@@ -1,7 +1,7 @@
 {
-  "uid": "twitterclone-fanout",
+  "uid": "starling-fanout",
   "title": "Fan-out",
-  "tags": ["twitter-clone", "fanout"],
+  "tags": ["starling", "fanout"],
   "timezone": "browser",
   "refresh": "30s",
   "time": { "from": "now-1h", "to": "now" },
@@ -115,7 +115,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=\"twitter-clone\", app=\"fanout-worker\"}"
+          "expr": "{namespace=\"starling\", app=\"fanout-worker\"}"
         }
       ]
     }

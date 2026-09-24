@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.spring-service-conventions")
+    id("starling.spring-service-conventions")
 }
 
 description = "Tweets, likes, retweets, replies, media metadata and search."

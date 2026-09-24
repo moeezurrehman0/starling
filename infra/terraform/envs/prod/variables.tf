@@ -7,13 +7,13 @@ variable "region" {
 variable "name" {
   description = "Name prefix."
   type        = string
-  default     = "twitter-clone-prod"
+  default     = "starling-prod"
 }
 
 variable "namespace" {
   description = "Kubernetes namespace the workloads run in."
   type        = string
-  default     = "twitter-clone"
+  default     = "starling"
 }
 
 variable "vpc_cidr" {

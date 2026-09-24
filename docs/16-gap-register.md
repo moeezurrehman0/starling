@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S45`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S46`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S45`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S46`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -676,6 +676,20 @@ skip, not a pass*. Same pattern as the `cost` job and a missing Infracost key (r
 *Gap:* on a private repository without Advanced Security there is genuinely no SAST — the
 control makes that visible, it does not fix it. Making the repository public removes the
 gap entirely.
+
+**S46. A rename that verifies contents has not verified names.** Renaming the project
+touched 583 identifiers across 264 files, and the gate written to enforce it — no tracked
+file may contain the old name — reported clean immediately afterwards. The build did not
+compile. Gradle encodes a convention plugin's id in its *filename*, so
+`build-logic/src/main/kotlin/<old>.java-conventions.gradle.kts` still carried the old name
+while every `plugins { id("...") }` block referencing it had already moved, and `grep` over
+file contents cannot see a filename. The same shape applies to Java package directories,
+Helm chart directory names and anything else where the path *is* the identifier. What makes
+this a register entry rather than a footnote is that the check was written specifically to
+make the rename safe and it certified a broken tree — the reassurance was the failure.
+*Control:* the assertion scans `git ls-files` output as paths as well as grepping contents,
+and the compile step is the independent witness. *Gap:* neither covers untracked files or
+the working directory's own name, which sits outside the repository entirely.
 
 ---
 

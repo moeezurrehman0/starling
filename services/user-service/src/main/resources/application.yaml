@@ -61,9 +61,9 @@ logging:
     format:
       console: ecs
 
-twitterclone:
+starling:
   jwt:
-    issuer: https://twitterclone.dev
+    issuer: https://starling.dev
     # Short because nothing revokes a JWT: a logged-out or banned account keeps working for
     # exactly this long. The gateway caches the JWKS, so the cost of a short TTL is a refresh
     # round trip, not a key fetch per request.

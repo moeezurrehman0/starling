@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.spring-service-conventions")
+    id("starling.spring-service-conventions")
 }
 
 description = "Accounts, credentials, profiles and the follow graph."

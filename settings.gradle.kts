@@ -18,7 +18,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "twitter-clone"
+rootProject.name = "starling"
 
 include(
     // Declarations only: the DynamoDB item records and TableSchemas shared by the services

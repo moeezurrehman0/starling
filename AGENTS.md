@@ -5,7 +5,8 @@ help.
 
 ## What this project is
 
-A Twitter clone used as the vehicle for a complete DevOps delivery system: GitHub
+Starling, a microblogging product used as the vehicle for a complete DevOps
+delivery system: GitHub
 Actions, Terraform, EKS, ArgoCD and observability. **The product is the excuse; the
 pipeline is the point.** When a choice trades product richness for delivery-system
 clarity, take the delivery-system clarity.

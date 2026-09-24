@@ -46,13 +46,13 @@ variable "storage_type" {
 variable "database_name" {
   description = "Initial database name."
   type        = string
-  default     = "twitter_search"
+  default     = "starling_search"
 }
 
 variable "master_username" {
   description = "Master user. Not 'postgres' and not 'admin', both of which are the first two guesses."
   type        = string
-  default     = "twitter"
+  default     = "starling"
 }
 
 variable "multi_az" {

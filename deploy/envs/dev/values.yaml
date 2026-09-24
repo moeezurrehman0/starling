@@ -6,7 +6,7 @@
 image:
   # Overwritten per service with the service name appended. Kept here so a
   # registry change is one edit rather than six.
-  repository: ghcr.io/twitter-clone
+  repository: ghcr.io/starling
 
 replicaCount: 1
 
@@ -39,4 +39,4 @@ secretEnv:
   # Applied directly in Tier L and Tier S. In Tier P the same Secret name is
   # produced by External Secrets Operator from Secrets Manager, so no workload
   # manifest differs between the two.
-  secretName: twitter-clone-secrets
+  secretName: starling-secrets

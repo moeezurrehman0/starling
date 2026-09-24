@@ -55,7 +55,7 @@ hosting ArgoCD, Prometheus, Grafana and Tempo, it does not fit.
 scan. Rejected.
 
 **No search at all.** Considered seriously, since search is not what this project is
-demonstrating. Rejected because search is a defining Twitter feature and PostgreSQL FTS
+demonstrating. Rejected because search is a defining microblog feature and PostgreSQL FTS
 costs one index and roughly a day of work.
 
 ## Consequences

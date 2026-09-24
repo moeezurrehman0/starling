@@ -17,7 +17,7 @@
 
 locals {
   tags = {
-    Project     = "twitter-clone"
+    Project     = "starling"
     Environment = "production"
     ManagedBy   = "terraform"
     # A cost-allocation tag that is applied from day one, because retrofitting
@@ -32,7 +32,7 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "aws_kms_key" "data" {
-  description = "twitter-clone production data at rest"
+  description = "starling production data at rest"
   # Rotation is annual and free; the reason to enable it is not the rotation, it
   # is that the key can be rotated at all without re-encrypting anything.
   enable_key_rotation     = true
@@ -48,7 +48,7 @@ resource "aws_kms_alias" "data" {
 # A separate key for etcd. Same reasoning as separate roles: one compromised key
 # policy should not expose both the database and every Kubernetes Secret.
 resource "aws_kms_key" "secrets" {
-  description             = "twitter-clone EKS secrets envelope encryption"
+  description             = "starling EKS secrets envelope encryption"
   enable_key_rotation     = true
   deletion_window_in_days = 30
   tags                    = local.tags

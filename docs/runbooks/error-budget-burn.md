@@ -54,7 +54,7 @@ produces thousands of 401s and must not page anyone.
    lines and click the `TraceID` derived field:
 
    ```
-   {namespace="twitter-clone", container="<app>"} | json | http_status >= 500
+   {namespace="starling", container="<app>"} | json | http_status >= 500
    ```
 
    The trace shows which hop failed. This is faster than reading logs from four
@@ -76,8 +76,8 @@ Roll back before diagnosing if the onset correlates with a deploy. The error
 budget is being spent while you read logs.
 
 ```
-kubectl -n twitter-clone rollout undo deployment/<app>
-kubectl -n twitter-clone rollout status deployment/<app>
+kubectl -n starling rollout undo deployment/<app>
+kubectl -n starling rollout status deployment/<app>
 ```
 
 ## Known limitation in Tier L

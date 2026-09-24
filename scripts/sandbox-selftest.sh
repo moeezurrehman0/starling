@@ -78,7 +78,7 @@ cat > "${STUB}/terraform" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"output -raw kubeconfig_command"*)
-    echo "aws eks update-kubeconfig --region us-east-1 --name twitter-clone-sandbox";;
+    echo "aws eks update-kubeconfig --region us-east-1 --name starling-sandbox";;
 esac
 exit "${TF_RC:-0}"
 STUB

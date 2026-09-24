@@ -56,11 +56,11 @@
           ]
         ],
         "before": {
-          "name": "twitter-public",
+          "name": "starling-public",
           "enable_deletion_protection": true
         },
         "after": {
-          "name": "twitter-public",
+          "name": "starling-public",
           "enable_deletion_protection": false
         }
       }
@@ -131,11 +131,11 @@
           "update"
         ],
         "before": {
-          "bucket": "twitter-media",
+          "bucket": "starling-media",
           "force_destroy": false
         },
         "after": {
-          "bucket": "twitter-media",
+          "bucket": "starling-media",
           "force_destroy": true
         }
       }
@@ -165,7 +165,7 @@
           "delete"
         ],
         "before": {
-          "name": "/twitter/audit"
+          "name": "/starling/audit"
         },
         "after": null
       }
@@ -181,7 +181,7 @@
         ],
         "before": null,
         "after": {
-          "name": "twitter-clone-prod-admin",
+          "name": "starling-prod-admin",
           "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"s3:*\", \"Resource\": \"*\"}, {\"Effect\": \"Allow\", \"Action\": [\"dynamodb:GetItem\"], \"Resource\": \"*\"}]}"
         }
       }
@@ -197,7 +197,7 @@
         ],
         "before": null,
         "after": {
-          "name": "twitter-clone-prod-cross-account",
+          "name": "starling-prod-cross-account",
           "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"*\"}, \"Action\": \"sts:AssumeRole\"}]}"
         }
       }

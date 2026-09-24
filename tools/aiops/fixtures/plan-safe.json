@@ -13,7 +13,7 @@
         ],
         "before": null,
         "after": {
-          "name": "/twitter/app",
+          "name": "/starling/app",
           "retention_in_days": 14
         }
       }
@@ -111,7 +111,7 @@
         ],
         "before": null,
         "after": {
-          "name": "twitter-clone-prod-timeline-service",
+          "name": "starling-prod-timeline-service",
           "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:aws:iam::111122223333:oidc-provider/oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B716D3041E\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\"}]}"
         }
       }

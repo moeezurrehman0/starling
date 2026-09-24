@@ -18,7 +18,7 @@ agentNamespace: observability-agents
 
 # The namespace being watched. Prometheus discovers pods cluster-wide but only keeps the ones
 # carrying the scrape annotation, so this is a label for dashboards rather than a filter.
-appNamespace: twitter-clone
+appNamespace: starling
 
 prometheus:
   # Every port Prometheus is permitted to scrape, enforced by NetworkPolicy.

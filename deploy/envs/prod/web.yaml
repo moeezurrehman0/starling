@@ -2,7 +2,7 @@ name: web
 port: 3000
 
 image:
-  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/twitter-clone/web
+  repository: 000000000000.dkr.ecr.eu-central-1.amazonaws.com/starling/web
   tag: sha-0000000
 
 probes:
@@ -23,7 +23,7 @@ networkPolicy:
 ingress:
   enabled: true
   className: alb
-  host: twitterclone.example.com
+  host: starling.example.com
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip

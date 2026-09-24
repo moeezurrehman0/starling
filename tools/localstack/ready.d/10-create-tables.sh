@@ -14,4 +14,4 @@ echo "[init] creating DynamoDB tables"
 # AWS_ENDPOINT_URL is left at its default of localhost:4566 on purpose: this runs *inside*
 # the LocalStack container, so localhost is the right address and pointing it at the compose
 # service name would resolve but route back out through the bridge for no reason.
-exec python3 /opt/twitter-tools/localstack/create-tables.py
+exec python3 /opt/starling-tools/localstack/create-tables.py

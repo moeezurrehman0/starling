@@ -15,7 +15,7 @@ spring:
         jwt:
           jwk-set-uri: ${USER_SERVICE_URL:http://localhost:8081}/v1/jwks
 
-twitterclone:
+starling:
   # The celebrity tier. Deliberately a separate instance: see config/RedisConfig.
   redis-celeb:
     host: ${REDIS_CELEB_HOST:localhost}

@@ -19,7 +19,7 @@ mock_provider "aws" {}
 mock_provider "random" {}
 
 variables {
-  name       = "twitter-clone"
+  name       = "starling"
   vpc_id     = "vpc-aaaaaaaa"
   subnet_ids = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
 }

@@ -30,7 +30,7 @@ classification that is wrong.
 1. **Which author, and how large.**
 
    ```
-   kubectl -n twitter-clone logs deployment/fanout-worker | grep -i truncat
+   kubectl -n starling logs deployment/fanout-worker | grep -i truncat
    ```
 
    The worker logs the author id and the follower count it saw. That count is
@@ -91,7 +91,7 @@ check.
 1. **What is actually in the record.**
 
    ```
-   kubectl -n twitter-clone logs deployment/fanout-worker | grep -i malformed
+   kubectl -n starling logs deployment/fanout-worker | grep -i malformed
    ```
 
    The worker logs the attribute keys it received. Compare against the
@@ -100,7 +100,7 @@ check.
 2. **Did the writer change.**
 
    ```
-   kubectl -n twitter-clone rollout history deployment/tweet-service
+   kubectl -n starling rollout history deployment/tweet-service
    ```
 
 3. **Is it every record or a subset.** A subset suggests a second writer — a

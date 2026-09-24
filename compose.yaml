@@ -20,7 +20,7 @@
 # holding your test data are reachable by anyone on that network. That default is a genuine
 # footgun and is overridden here rather than remarked upon.
 
-name: twitter-clone
+name: starling
 
 services:
   # ---------------------------------------------------------------------------
@@ -50,12 +50,12 @@ services:
       - ./tools/localstack/ready.d:/etc/localstack/init/ready.d:ro
       # The table definitions and the script that applies them. Read-only: nothing in the
       # container has any business editing the definitions the Terraform also reads.
-      - ./tools:/opt/twitter-tools:ro
+      - ./tools:/opt/starling-tools:ro
       - localstack-data:/var/lib/localstack
     healthcheck:
       # Asserts that the init hooks both ran and succeeded, not merely that the port is open.
       # See tools/localstack/healthcheck.py for why the obvious probes give false passes.
-      test: ["CMD", "python3", "/opt/twitter-tools/localstack/healthcheck.py"]
+      test: ["CMD", "python3", "/opt/starling-tools/localstack/healthcheck.py"]
       interval: 5s
       timeout: 10s
       retries: 30
@@ -138,11 +138,11 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     environment:
-      POSTGRES_DB: twitter_search
-      POSTGRES_USER: twitter
+      POSTGRES_DB: starling_search
+      POSTGRES_USER: starling
       # Local-only credential. Nothing here is reachable off the loopback interface, and the
       # sandbox and production equivalents come from Secrets Manager via External Secrets.
-      POSTGRES_PASSWORD: twitter
+      POSTGRES_PASSWORD: starling
       # Postgres 18 defaults to scram-sha-256 for host connections; stating it stops a future
       # image default from silently loosening local auth to trust.
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
@@ -156,7 +156,7 @@ services:
     healthcheck:
       # -U and -d are both required: without them pg_isready checks the wrong database and
       # reports ready during the init phase, before the real database has been created.
-      test: ["CMD-SHELL", "pg_isready -U twitter -d twitter_search"]
+      test: ["CMD-SHELL", "pg_isready -U starling -d starling_search"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -229,9 +229,9 @@ services:
       - "127.0.0.1:${TWEET_PORT:-8082}:8082"
     environment:
       <<: *aws-env
-      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/twitter_search
-      SEARCH_DB_USER: twitter
-      SEARCH_DB_PASSWORD: twitter
+      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/starling_search
+      SEARCH_DB_USER: starling
+      SEARCH_DB_PASSWORD: starling
       # On in Compose and off by default in the application, because the indexer is a stream
       # consumer: two replicas with it on would both index every tweet. Compose runs one.
       SEARCH_INDEXER_ENABLED: "true"
@@ -239,7 +239,7 @@ services:
       # new ARN whenever the stack is recreated, so any literal here would be stale after the
       # first `make down-hard`.
       TWEETS_STREAM_ARN: ""
-      MEDIA_BUCKET: twitterclone-media
+      MEDIA_BUCKET: starling-media
       USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
     depends_on:
       localstack:

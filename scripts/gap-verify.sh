@@ -299,8 +299,14 @@ targets="$(grep -o '^[a-z][a-z0-9-]*:' Makefile | tr -d ':' | sort -u | tr '\n' 
 # check that gets its whole section skipped -- gap S40, in miniature.
 cited="$( { grep -ho '`make [a-z][a-z0-9-]*' README.md AGENTS.md docs/*.md docs/runbooks/*.md 2>/dev/null |
              sed 's/^`make //'
-           grep -ho '^make [a-z][a-z0-9-]*' README.md AGENTS.md docs/*.md docs/runbooks/*.md 2>/dev/null |
-             sed 's/^make //'; } | sort -u)"
+           # Line-leading matches are only trusted inside a fenced code block.
+           # Unfenced, prose that wraps onto "make the rename safe" or "make it
+           # clear" reads as a target and the check cries wolf on English --
+           # which is gap S40, and it fired on this very document.
+           awk 'FNR == 1 { fence = 0 }
+                /^```/ { fence = !fence; next }
+                fence && /^make [a-z][a-z0-9-]*/ { print $2 }' \
+             README.md AGENTS.md docs/*.md docs/runbooks/*.md 2>/dev/null; } | sort -u)"
 for t in ${cited}; do
   case " ${targets} " in
     *" ${t} "*) ;;
@@ -308,6 +314,39 @@ for t in ${cited}; do
   esac
 done
 [ "${bad_make}" -eq 0 ] && pass "every documented make target exists"
+
+# ---------------------------------------------------------------------------
+head_ "the pre-rename project name appears nowhere"
+
+# The product is Starling. The former name is banned outright, but the reason
+# this is a CI gate rather than a style note is operational: sandbox-down.sh
+# sweeps AWS by "Name=tag:Project,Values=${SANDBOX_TAG_VALUE}" and by name
+# prefix. If one Terraform tag or one script constant drifts back to the old
+# value, the sweep matches nothing and reports a clean account over resources
+# that are still running and still billing -- gap S43, reintroduced by a
+# find-and-replace. The old name surviving anywhere is the observable symptom.
+#
+# Built from fragments so this line does not match itself.
+banned="$(printf 't%sr' 'witte')"
+stale="$(git ls-files -z |
+  xargs -0 grep -lI -i -e "${banned}" 2>/dev/null |
+  grep -v '^scripts/gap-verify\.sh$' || true)"
+# Paths, not just contents. Gradle encodes a convention plugin's id in its
+# filename, so build-logic/<id>.gradle.kts kept the old name while every file
+# referencing it had moved on -- the content check passed and the build did not
+# compile. A gate that reports clean over a broken tree is the whole subject of
+# this register, so it is worth the second line.
+stale_paths="$(git ls-files | grep -i -e "${banned}" || true)"
+if [ -n "${stale}" ] || [ -n "${stale_paths}" ]; then
+  for f in ${stale}; do
+    fail "pre-rename project name still present in ${f}"
+  done
+  for f in ${stale_paths}; do
+    fail "pre-rename project name still in the path ${f}"
+  done
+else
+  pass "no occurrence of the pre-rename project name in any tracked file or path"
+fi
 
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [ "${FAILED}" -eq 0 ]

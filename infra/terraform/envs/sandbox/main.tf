@@ -7,7 +7,7 @@
 
 locals {
   tags = {
-    Project     = "twitter-clone"
+    Project     = "starling"
     Environment = "sandbox"
     ManagedBy   = "terraform"
     # The playground reaps by tag in some configurations, and an untagged

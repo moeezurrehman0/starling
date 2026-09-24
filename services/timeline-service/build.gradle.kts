@@ -1,5 +1,5 @@
 plugins {
-    id("twitterclone.spring-service-conventions")
+    id("starling.spring-service-conventions")
 }
 
 description = "Home timeline reads, the hybrid merge, and routing across the two caches."

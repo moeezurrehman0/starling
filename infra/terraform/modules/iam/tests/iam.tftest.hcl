@@ -23,12 +23,12 @@ mock_provider "aws" {
 }
 
 variables {
-  name              = "twitter-clone"
-  namespace         = "twitter-clone"
+  name              = "starling"
+  namespace         = "starling"
   region            = "eu-central-1"
   oidc_provider_arn = "arn:aws:iam::111111111111:oidc-provider/oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B716D3041E"
   oidc_provider_url = "https://oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B716D3041E"
-  media_bucket_arn  = "arn:aws:s3:::twitter-clone-media"
+  media_bucket_arn  = "arn:aws:s3:::starling-media"
 }
 
 run "one_role_per_service_and_web_has_none" {
@@ -91,7 +91,7 @@ run "role_names_are_prefixed_so_two_clusters_can_coexist" {
   # means the second apply silently adopts the first's roles.
   assert {
     condition = alltrue([
-      for k, r in aws_iam_role.this : startswith(r.name, "twitter-clone-")
+      for k, r in aws_iam_role.this : startswith(r.name, "starling-")
     ])
     error_message = "a role name is missing the cluster prefix; IAM is account-global and an unprefixed name is adopted, not rejected"
   }

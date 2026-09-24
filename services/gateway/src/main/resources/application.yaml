@@ -16,7 +16,7 @@ spring:
         jwt:
           jwk-set-uri: ${USER_SERVICE_URL:http://localhost:8081}/v1/jwks
 
-twitterclone:
+starling:
   gateway:
     # Longest prefix wins, so a more specific route can be added without reordering.
     # The [] around every key is mandatory, not a style. Spring Boot's relaxed binding
