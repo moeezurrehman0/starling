@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/moeezurrehman0/starling/compare/v0.2.0...v0.2.1) (2026-09-24)
+
+
+### Bug fixes
+
+* **release:** assert release bookkeeping and align the kind builder driver ([#14](https://github.com/moeezurrehman0/starling/issues/14)) ([cc50c76](https://github.com/moeezurrehman0/starling/commit/cc50c765ed62a5039dbd2ce18417443de7b69278))
+
+
+### Build and dependencies
+
+* **web:** typescript 6 and a registry assertion for Publish ([#16](https://github.com/moeezurrehman0/starling/issues/16)) ([ac06d44](https://github.com/moeezurrehman0/starling/commit/ac06d440fe0f5b6af4d8b0fac9dc841172de9b70))
+
 ## [0.2.0](https://github.com/moeezurrehman0/starling/compare/v0.1.0...v0.2.0) (2026-09-24)
 
 
