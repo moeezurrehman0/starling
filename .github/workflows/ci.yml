@@ -167,6 +167,19 @@ jobs:
       - name: Sandbox lifecycle self-test
         run: ./scripts/sandbox-selftest.sh
 
+      # Both of these test a check whose entire purpose is to notice that a green
+      # tick meant nothing -- S60 for Publish, S59 for Release. A check like that
+      # which cannot itself fail is worse than no check, because it converts an
+      # unknown into a false assurance. This session produced two assertions that
+      # ran, passed, and could never have fired (`gh pr list --label`, and buildx
+      # `--format '{{.Manifest.Digest}}'`), so every branch of both is asserted in
+      # the failing direction against stub binaries.
+      - name: Publish verification self-test
+        run: ./scripts/publish-verify-selftest.sh
+
+      - name: Release verification self-test
+        run: ./scripts/release-verify-selftest.sh
+
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck

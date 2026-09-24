@@ -207,6 +207,14 @@ sandbox-down: ## [APPLIES TO AWS] Destroy everything, then ask AWS directly what
 sandbox-selftest: ## Test the whole lifecycle against stub AWS/terraform/kubectl — no account needed
 	@scripts/sandbox-selftest.sh
 
+.PHONY: release-selftest
+release-selftest: ## Two-sided test of the Publish and Release verification gates — offline
+	@# Both gates exist because a green tick meant nothing (S60, S59). A gate
+	@# like that which cannot itself fail is worse than no gate, so every
+	@# branch is asserted in the direction where it must fail.
+	@./scripts/publish-verify-selftest.sh
+	@./scripts/release-verify-selftest.sh
+
 # ---------------------------------------------------------------------------
 # Docs
 # ---------------------------------------------------------------------------
