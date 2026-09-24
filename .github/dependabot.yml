@@ -59,6 +59,14 @@ updates:
   # .terraform.lock.hcl, so pointing it at /infra/terraform -- which contains only
   # modules and no lock -- finds nothing and reports success, which is the worst of
   # both outcomes.
+  #
+  # The consequence is that a provider bump arrives as a PR that cannot work: the
+  # modules restate the same constraint and Dependabot never sees them, so the roots
+  # move to ~> 6.66 while seven modules stay on ~> 5.70 and init fails on a version
+  # conflict. Adding the module directories here would not fix it either -- they would
+  # arrive as seven more PRs, each individually just as broken. tf-validate.sh asserts
+  # the constraints agree, so the partial bump fails on a line that says which file is
+  # behind; the upgrade itself is a manual, all-nine-files change.
   - package-ecosystem: terraform
     directory: "/infra/terraform/envs/sandbox"
     schedule:

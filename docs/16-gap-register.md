@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S55`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S56`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S55`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S56`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -880,6 +880,34 @@ comments on them. *Gap:* the identity a commit carries is decided by local git
 configuration at the moment of the commit, and nothing in this pipeline checks it. Every
 gate here reads the content of a change; none of them read who it says wrote it, and that
 is the one field that cannot be corrected after publication.
+
+**S56. A dependency bot can only bump what it can see, and it reports success either
+way.** The aws provider constraint is restated in nine files — two roots and seven
+modules — and Dependabot watches the two roots, because a root is the only thing with a
+`.terraform.lock.hcl` for it to resolve against. So the 5.100 → 6.66 bump arrived as two
+pull requests that could not possibly pass: the roots moved, the modules did not, and
+`init` failed with *locked provider 6.66.0 does not match configured version constraint
+~> 5.70, ~> 6.66* — a message that names neither the file that moved nor the file that
+stayed. Pointing Dependabot at the module directories would not have helped; it would
+have produced seven more PRs, each individually just as broken, because the constraint is
+one decision expressed in nine places and a per-directory bot cannot make it once. *Gap,
+now closed:* `tf-validate.sh` asserts the nine constraints agree and prints every file
+with its value when they do not, so a partial bump fails on a line that says which file
+is behind. The upgrade stays manual, which is the honest outcome — a major provider
+version is a change to make deliberately, not one to merge because a bot opened it.
+
+Worth recording what the upgrade itself showed, because it is the opposite of what a
+major version number suggests. Planned against LocalStack and diffed resource-by-resource
+against a 5.100 plan, v6 produced an identical set of 119 resources and no semantic
+change to any of them: every difference was either the new per-resource `region`
+attribute, a newly-added optional block materialising as empty, or a sparser encoding of
+the same value — the logs bucket's encryption rule dropped a `kms_master_key_id = ""` it
+never used while staying `AES256`. The risk in a major provider bump was not in the
+configuration; it was in the bump arriving in pieces. *Gap:* that comparison is
+something the pipeline cannot do for itself. It required planning both versions and
+diffing the JSON by hand, and nothing here would have caught a semantic change if one had
+occurred — the LocalStack plan proves a configuration still plans, not that it still
+means what it meant.
 
 ---
 

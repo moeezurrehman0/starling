@@ -195,6 +195,38 @@ assert_grep "sandbox disables table deletion protection" \
   'deletion_protection    = false' "$SBX"
 assert_grep "sandbox adopts the default VPC" 'use_default_vpc = true' "$SBX"
 
+# The aws provider constraint is restated in every versions.tf -- two roots and
+# seven modules. Nothing makes them agree, and Dependabot only watches the two
+# roots, because only a root has the .terraform.lock.hcl it resolves against. So
+# the routine case is a bump that moves the roots and leaves the modules behind,
+# and what surfaces is "locked provider 6.66.0 does not match configured version
+# constraint ~> 5.70, ~> 6.66" from whichever module initialised first -- which
+# names neither the file that is stale nor the file that moved. Comparing them
+# here says which, before init gets a chance to be cryptic about it.
+_aws_files=$(grep -rlE 'hashicorp/aws' "$TF_DIR"/envs/*/versions.tf \
+  "$TF_DIR"/modules/*/versions.tf 2>/dev/null | wc -l | tr -d ' ')
+_aws_uniq=$(
+  for f in "$TF_DIR"/envs/*/versions.tf "$TF_DIR"/modules/*/versions.tf; do
+    [ -f "$f" ] || continue
+    awk '/aws[[:space:]]*=[[:space:]]*\{/,/\}/' "$f" |
+      grep -oE 'version[[:space:]]*=[[:space:]]*"[^"]*"' |
+      sed "s|^|$f |"
+  done | awk '{print $NF}' | sort -u | wc -l | tr -d ' '
+)
+if [ "$_aws_files" -lt 2 ]; then
+  bad "expected several versions.tf declaring hashicorp/aws, found $_aws_files"
+elif [ "$_aws_uniq" -eq 1 ]; then
+  ok "all $_aws_files aws provider constraints agree"
+else
+  bad "aws provider constraint differs across $_aws_files files ($_aws_uniq variants)"
+  for f in "$TF_DIR"/envs/*/versions.tf "$TF_DIR"/modules/*/versions.tf; do
+    [ -f "$f" ] || continue
+    c=$(awk '/aws[[:space:]]*=[[:space:]]*\{/,/\}/' "$f" |
+      grep -oE '"[^"]*"' | tail -1)
+    printf '        %s %s\n' "${f#"$ROOT"/}" "$c"
+  done
+fi
+
 # No real account id may be committed. The prod values files use 000000000000 on
 # purpose; a 12-digit number that is not that is almost certainly somebody's.
 if grep -rnE 'arn:aws:iam::[0-9]{12}:' "$TF_DIR" --include='*.tf' |
