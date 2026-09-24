@@ -103,6 +103,35 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      # The push above reports success from the builder's point of view. This asks the
+      # registry instead, which is the only party whose answer matters -- the tag has to
+      # resolve, and to the digest we just pushed. See S60: this workflow reported
+      # success twice on a repository where it had never once pushed an image, because a
+      # skipped matrix job and a completed one are the same green tick.
+      - name: Verify the image resolves in the registry
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:sha-${{ github.sha }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "::error::push step produced no digest"; exit 1; }
+          # Parsed out of the human output on purpose. `--format
+          # '{{.Manifest.Digest}}'` is accepted and then ignored by older buildx,
+          # which prints the default block instead -- tested, and it would have
+          # made this comparison pass against a string that was never a digest.
+          remote=$(docker buildx imagetools inspect "$IMAGE" |
+            awk '/^Digest:/{print $2; exit}')
+          echo "pushed:   $DIGEST"
+          echo "registry: $remote"
+          case "$remote" in
+            sha256:*) ;;
+            *) echo "::error::could not read a digest for $IMAGE"; exit 1 ;;
+          esac
+          [ "$remote" = "$DIGEST" ] || {
+            echo "::error::$IMAGE resolves to $remote, not the digest just pushed"
+            exit 1
+          }
+
       - name: SBOM (CycloneDX)
         uses: anchore/sbom-action@v0
         with:
