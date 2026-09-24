@@ -639,16 +639,19 @@ jobs:
       - name: Size gate
         run: ./scripts/image-report.sh starling/${{ matrix.service }}:ci
 
+      # Not aquasecurity/trivy-action: it installs the scanner by running
+      # contrib/install.sh from aquasecurity/trivy@main, so pinning the action
+      # pins a wrapper around a branch that moves. That script started exiting 1
+      # with no diagnostic and took all five image jobs with it. The script below
+      # runs a pinned scanner image and is the same command a developer runs
+      # locally. The scan fails the build: one that only reports is one nobody reads.
       - name: Vulnerability scan
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          image-ref: starling/${{ matrix.service }}:ci
-          format: sarif
-          output: trivy-${{ matrix.service }}.sarif
-          severity: CRITICAL,HIGH
-          # The scan must fail the build. A scan that only reports is a scan nobody reads.
-          exit-code: '1'
-          ignore-unfixed: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./scripts/image-scan.sh \
+            starling/${{ matrix.service }}:ci \
+            trivy-${{ matrix.service }}.sarif
 
       - name: Publish scan results
         if: always()

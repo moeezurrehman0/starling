@@ -8,6 +8,19 @@ val libs = extensions
     .named("libs")
 
 dependencies {
+    // Overriding a version the Boot BOM manages. CVE-2026-65182, -65905 and
+    // -68525 are all CRITICAL and all bypasses -- a security constraint, DIGEST
+    // auth and FORM auth respectively -- and Boot 4.1.1 manages 11.0.24, which
+    // has none of the fixes. A constraint rather than an explicit dependency so
+    // it applies wherever the BOM pulls Tomcat in transitively, and so it raises
+    // the floor without pinning the ceiling when Boot catches up.
+    constraints {
+        implementation("org.apache.tomcat.embed:tomcat-embed-core") {
+            version { require(libs.findVersion("tomcat").get().requiredVersion) }
+            because("Boot 4.1.1 manages 11.0.24; CVE-2026-65182/65905/68525 are fixed in 11.0.25")
+        }
+    }
+
     // Boot 4 ships its own BOM; the separate io.spring.dependency-management
     // plugin is no longer required.
     implementation(platform(libs.findLibrary("spring-boot-bom").get()))

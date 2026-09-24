@@ -1,5 +1,10 @@
 [versions]
 springBoot = "4.1.1"
+# Ahead of the version Boot 4.1.1 manages (11.0.24), which carries three
+# CRITICAL CVEs -- all authentication or security-constraint bypasses. Held here
+# rather than waiting for the next Boot release because the image scan is a gate
+# and the only alternatives are shipping the CVEs or suppressing them.
+tomcat = "11.0.26"
 jspecify = "1.0.1"
 testcontainers = "2.0.5"
 checkstyle = "14.1.0"

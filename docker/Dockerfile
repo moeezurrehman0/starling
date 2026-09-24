@@ -25,7 +25,14 @@ ARG JDK_IMAGE=eclipse-temurin:25-jdk
 # in the first draft of ADR-0010 (base-nossl): java-base is purpose-built for
 # custom runtimes and carries the native libraries the JVM dlopen()s.
 # There is still no distroless/java25 image — verified, not assumed.
-ARG RUNTIME_BASE=gcr.io/distroless/java-base-debian12:nonroot
+#
+# debian13, not debian12. The debian12 variant carries five fixable HIGH CVEs
+# (libexpat1, liblcms2-2 and three in libpcre2-8-0) that no change in this
+# repository can address -- they are in the base, and the image scan is a gate,
+# so the choice was to move base or suppress real findings. The debian13 variant
+# scans clean. That it scans clean today is not the argument; that the base is
+# still maintained is.
+ARG RUNTIME_BASE=gcr.io/distroless/java-base-debian13:nonroot
 
 
 # --- Stage 1: explode the Boot jar -----------------------------------------

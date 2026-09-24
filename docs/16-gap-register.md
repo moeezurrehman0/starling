@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S49`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S50`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S49`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S50`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -740,6 +740,27 @@ command exercise the same machinery. *Gap:* driver parity is asserted by the Mak
 using the right flag, not by anything that checks it — and the class is general. Any CI
 runner that injects environment into builds can break a step that reads it, and there is
 no inventory of what this build reads from its environment.
+
+**S50. A pinned action that installs an unpinned script is not pinned.** The image jobs
+used `aquasecurity/trivy-action` at an exact tag, which reads as a controlled dependency.
+The action does not contain the scanner: it checks out `contrib/install.sh` from
+`aquasecurity/trivy@main` — a branch — and runs it. That script began exiting 1 with no
+diagnostic immediately after resolving the release, and all five jobs failed on a day
+nothing in this repository had changed near them. The pin was real and bought nothing,
+because it pinned the wrapper and not the thing being installed. The scan now runs the
+official scanner image at an exact tag from `scripts/image-scan.sh`, which also makes it
+runnable locally — the same property S49 is about. *Gap:* the vulnerability database is
+still fetched at run time and still moves, so the gate's verdict can change without any
+commit. That is inherent to scanning rather than a defect, but it means a green scan is a
+statement about today and re-running an old commit may not reproduce it.
+
+Turning the scan on for the first time found eight real fixable findings: three CRITICAL
+in `tomcat-embed-core` 11.0.24 (all authentication or security-constraint bypasses,
+managed by the Spring Boot 4.1.1 BOM and fixed in 11.0.25), and five HIGH in the
+`distroless/java-base-debian12` base with no fix available in that base at all. Tomcat is
+now held ahead of the BOM by a constraint; the base moved to `debian13`, which scans
+clean. Both were only visible because the scan was made to run, which is the honest
+summary of what a gate that has never executed is worth.
 
 ---
 
