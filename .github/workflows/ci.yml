@@ -27,6 +27,12 @@ permissions:
 
 jobs:
   changes:
+    # A called workflow cannot request more than its caller was granted, and the
+    # caller's default here is contents-only. Without this the whole run fails to
+    # start, rather than the job failing -- there is no log to read.
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/changes.yml
 
   # --------------------------------------------------------------------------

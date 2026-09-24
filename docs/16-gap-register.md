@@ -809,6 +809,16 @@ nothing about an event that has never fired. The same is true of everything stil
 triggered from a tag or a schedule here, and CI has no way to tell the difference between
 a job that passes and a job that has never been asked to run.
 
+The first attempt at the fix made it worse in an instructive way. Granting the scope
+inside the called workflow alone is invalid — a reusable workflow cannot request more than
+its caller holds — and the result is not a failed job but a `startup_failure`: the entire
+run refuses to begin, so there is no log, no annotation and no failed step to read, on
+both CI and Publish at once. The permission has to be granted at the call site too.
+*Gap:* nothing in this repository validates a workflow file before GitHub does. There is
+no `actionlint` in the Scripts job, so every workflow change is verified by pushing it,
+and the failure mode for an invalid one is the least diagnosable output the platform
+produces.
+
 ---
 
 ## Maintenance

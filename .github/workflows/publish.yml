@@ -37,6 +37,11 @@ env:
 
 jobs:
   changes:
+    # See ci.yml: the called workflow needs pull-requests to read a PR's file list,
+    # and a caller that does not grant it fails the run before any job starts.
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/changes.yml
 
   publish:
