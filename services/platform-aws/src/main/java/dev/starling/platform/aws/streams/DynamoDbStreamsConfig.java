@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
-import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.streams.DynamoDbStreamsClient;
 
@@ -34,7 +34,7 @@ public class DynamoDbStreamsConfig {
     var builder =
         DynamoDbStreamsClient.builder()
             .httpClientBuilder(
-                ApacheHttpClient.builder()
+                Apache5HttpClient.builder()
                     .maxConnections(20)
                     .connectionTimeout(Duration.ofSeconds(2)))
             .overrideConfiguration(

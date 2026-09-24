@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S56`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S57`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S56`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S57`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -908,6 +908,29 @@ something the pipeline cannot do for itself. It required planning both versions 
 diffing the JSON by hand, and nothing here would have caught a semantic change if one had
 occurred — the LocalStack plan proves a configuration still plans, not that it still
 means what it meant.
+
+**S57. A minor dependency bump replaced the HTTP client underneath the runtime.** The
+AWS SDK 2.46 → 2.55 bump is a patch-level version change by the look of it, and what it
+actually did was deprecate `apache-client` in favour of `apache5-client` — a different
+artifact, a different package, and Apache HttpClient 5 instead of 4 inside a jlink runtime
+whose JDK module list was measured by running the old one. Nothing about the version
+number says that. It surfaced only because `-Werror` is on: two deprecation warnings
+failed the compile, which is the entire value of treating warnings as errors on a
+dependency bump — without it the build would have gone green on a deprecated transport
+and the migration would have happened later, under worse circumstances.
+
+The part that matters is what verified the fix. Swapping the HTTP client changes which
+classes get loaded reflectively at runtime, and `jdeps` cannot see any of it — the same
+reason `docker/jlink-modules.txt` exists as a measured list rather than a generated one.
+A green Gradle build proves nothing here, because Gradle runs on the full JDK. What
+proves it is `image-verify.sh` performing a live TLS handshake to an AWS endpoint from
+inside the built distroless image: that exercises the new transport through the trimmed
+runtime, and it is the only check in this repository that would have caught a missing
+module. It passed for both affected services. *Gap:* the coverage is narrower than it
+looks. That probe makes one kind of call; a module needed only by some other code path —
+a retry, a checksum algorithm, a credential provider not used at startup — would still
+reach production as a `NoClassDefFoundError` on first use, and no gate here would have
+said otherwise.
 
 ---
 

@@ -15,7 +15,7 @@ jacoco = "0.8.13"
 archunit = "1.5.0"
 # AWS SDK v2. The v1 SDK (group com.amazonaws) reached end of support in Dec 2025
 # and must not be introduced — see ADR-0012 on why the KCL streams adapter is rejected.
-awsSdk = "2.46.7"
+awsSdk = "2.55.1"
 
 [libraries]
 # --- Platforms -------------------------------------------------------------
@@ -66,7 +66,7 @@ aws-dynamodb-enhanced = { module = "software.amazon.awssdk:dynamodb-enhanced" }
 # DynamoDbStreamsClient ships inside the dynamodb artifact. The consumer is hand-rolled
 # on DescribeStream/GetShardIterator/GetRecords rather than using KCL — see ADR-0012.
 aws-s3 = { module = "software.amazon.awssdk:s3" }
-aws-apache-client = { module = "software.amazon.awssdk:apache-client" }
+aws-apache-client = { module = "software.amazon.awssdk:apache5-client" }
 
 # --- Persistence: PostgreSQL (search index only, ADR-0007) -----------------
 # JdbcClient rather than JPA. The search index is derived data with one table, queried with
