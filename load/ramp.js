@@ -28,7 +28,7 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:18081';
 
 // Tier L defaults. The kind cluster is three containers inside an 8 GB Docker
 // VM already running six JVMs, so the ceiling here is the laptop, not the
-// application — see gap row 33. Tier S overrides these via environment.
+// application — see gap S38. Tier S overrides these via environment.
 const PEAK_RPS = Number(__ENV.PEAK_RPS || 20);
 const STAGE = __ENV.STAGE_DURATION || '2m';
 

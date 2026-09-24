@@ -86,7 +86,7 @@ of itself as much as the system.
 AWS services and the application all share one laptop. Above 30 rps the binding constraint
 stopped being the application at all: LocalStack was `OOMKilled` at its 1 Gi limit, which
 destroyed every DynamoDB table and made the services answer `ResourceNotFoundException` at
-a 90% rate. See gap register row 38.
+a 90% rate. See gap S38.
 
 ## Progressive delivery
 

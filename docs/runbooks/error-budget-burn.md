@@ -85,5 +85,5 @@ kubectl -n twitter-clone rollout status deployment/<app>
 Local Prometheus retains 2 hours, so `ErrorBudgetBurningSlow` — whose long
 window is 6 hours — can never fire on kind. This is deliberate: the rules file
 is the artefact promoted to Tier P, and weakening the window to make it
-demonstrable locally would weaken it in production too. See gap register row on
-retention.
+demonstrable locally would weaken it in production too. See gap register row 27
+(signal retention).

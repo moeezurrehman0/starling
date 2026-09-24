@@ -236,3 +236,7 @@ risk-comment: ## Plan the prod root against LocalStack and render the Terraform 
 .PHONY: triage
 triage: ## Draft a probable cause for a firing alert; ALERT=<path to Alertmanager payload>
 	@python3 tools/aiops/triage.py --alert $${ALERT:-tools/aiops/fixtures/alert.json}
+
+.PHONY: gap-verify
+gap-verify: ## Resolve every citation and artefact the gap register names; fail on a dead one
+	@./scripts/gap-verify.sh

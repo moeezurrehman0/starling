@@ -154,11 +154,19 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
+**These are numbered `S1`–`S42`, in their own namespace.** They are not rows of the register
+above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
+section answers a different question: "what was broken while every gate said it was fine".
+The two schemes overlapped for most of this project's life, both referred to as "gap row
+N", and two citations in the source tree were silently pointing at the wrong entry as a
+result. `scripts/gap-verify.sh` now resolves every citation in the repository against this
+file and fails if one does not exist.
+
 Every gate in this repository was green while each of the following was broken. That is
 the useful part: not the individual bug, but the *class* — the reason the existing controls
 could not see it, and the control that now can.
 
-**1. Boot 4 split every auto-configuration into its own module.** A `spring.flyway.*` block
+**S1. Boot 4 split every auto-configuration into its own module.** A `spring.flyway.*` block
 with no `spring-boot-flyway` on the classpath is not an error; it is inert. Migrations
 simply never ran, and the service started healthy. Symmetrically, a dependency nobody uses
 is not free: a leftover `spring-boot-data-redis` auto-configured a health indicator against
@@ -167,18 +175,18 @@ is not free: a leftover `spring-boot-data-redis` auto-configured a health indica
 confirmed, and read the startup log for the auto-configuration report rather than trusting
 that configuration implies behaviour.
 
-**2. Spring Security evaluates the ERROR dispatch.** An unhandled 500 inside a `permitAll`
+**S2. Spring Security evaluates the ERROR dispatch.** An unhandled 500 inside a `permitAll`
 endpoint is re-dispatched, re-filtered, and delivered to the client as **401**. Every
 diagnosis that followed was therefore wrong by construction — the visible symptom pointed at
 authentication and the cause was a null pointer. *Control:* all four `SecurityConfig`s now
 permit the ERROR dispatch explicitly, and the e2e suite asserts on rendered pages rather
 than status codes, so a masked 500 shows up as a missing element.
 
-**3. Relaxed binding silently discards map keys containing `/`.** The gateway's route map
+**S3. Relaxed binding silently discards map keys containing `/`.** The gateway's route map
 bound to an empty map, so every route 404'd, with no warning anywhere. Keys must be
 bracketed: `"[/v1/tweets]"`. *Control:* the route map is asserted non-empty at startup.
 
-**4. `secure: NODE_ENV === 'production'` is a trap, not a best practice.** Every image runs
+**S4. `secure: NODE_ENV === 'production'` is a trap, not a best practice.** Every image runs
 a production *build*, but "built for production" is not "served over TLS". The browser
 discarded the session cookie on a plaintext origin — and Next reflects a just-written cookie
 within the same request, so the post-login redirect still rendered signed-in and only the
@@ -186,26 +194,26 @@ within the same request, so the post-login redirect still rendered signed-in and
 defaults on and requires an explicit `SESSION_COOKIE_SECURE=false` to disable, so the
 insecure case is a deliberate, greppable statement in `compose.yaml`.
 
-**5. A green unit suite says nothing about seams.** Three Phase 4 defects — the cookie
+**S5. A green unit suite says nothing about seams.** Three Phase 4 defects — the cookie
 above, a server action revalidating one route of three, and `likedByMe` never populated on
 any listing — lived entirely between components that were each individually correct.
 Contract tests, integration tests, the image smoke test and the size gate were all green
 throughout. *Control:* Playwright against the built images, on pull requests, not just on
 main ([docs/02-workflow.md §3](02-workflow.md)).
 
-**6. `jdeps` cannot see reflection, and the AWS SDK is full of it.** A jlink module set
+**S6. `jdeps` cannot see reflection, and the AWS SDK is full of it.** A jlink module set
 that satisfies the compiler can still produce a container that dies on its first call —
 classically on `jdk.crypto.ec`, which fails *only* against ECDHE peers, which is to say only
 against real AWS. *Control:* `scripts/image-verify.sh` runs the actual container and forces
 a live TLS handshake to an AWS endpoint, and CI runs it on every built image. Testing the
 Gradle classpath would prove nothing, because that classpath is a full JDK.
 
-**7. LocalStack init hooks run only on a fresh volume.** A changed bootstrap script appears
+**S7. LocalStack init hooks run only on a fresh volume.** A changed bootstrap script appears
 to work, because the tables from the previous run are still there. *Control:* `make tables`
 re-runs the bootstrap idempotently against a live container, so the script is exercised on
 every invocation rather than once per volume lifetime.
 
-**8. A guard in a `.tpl` file is not a guard.** Helm extracts only `define` blocks from
+**S8. A guard in a `.tpl` file is not a guard.** Helm extracts only `define` blocks from
 `templates/*.tpl`; loose content there is never evaluated. The `dev-infra` chart's
 "never install this outside a disposable cluster" check therefore passed `helm lint`,
 rendered nothing, and protected nothing — a chart of single-replica `emptyDir` databases
@@ -215,7 +223,7 @@ while the broken one also stops anybody looking. *Control:* the guard moved into
 invoked from every real template, and `scripts/helm-validate.sh` asserts that it **fails** —
 the guard is tested, not just present.
 
-**9. NetworkPolicy is accepted by clusters that cannot enforce it.** kind's default CNI
+**S9. NetworkPolicy is accepted by clusters that cannot enforce it.** kind's default CNI
 implements no policy engine. `kubectl apply` succeeds, `kubectl get networkpolicy` lists the
 object, `kubectl describe` shows the rules — and every packet still flows. A default-deny
 posture that is in fact wide open looks exactly like one that works, and it looks that way
@@ -223,7 +231,7 @@ in precisely the places an engineer would check. *Control:* `deploy/kind/cluster
 `disableDefaultCNI`, so a cluster cannot be created without an explicit CNI decision, and
 `scripts/kind-up.sh` installs Calico and aborts rather than degrading silently.
 
-**10. Rendering both an HPA and `spec.replicas` is valid, and wrong.** Nothing rejects it:
+**S10. Rendering both an HPA and `spec.replicas` is valid, and wrong.** Nothing rejects it:
 both objects pass schema validation and both are legal. Under GitOps the HPA scales up, the
 sync controller reverts the field to the number in Git, and the two oscillate — presenting
 as unexplained pod churn rather than as a manifest error. The same shape of problem appears
@@ -234,7 +242,7 @@ tiers must resolve to different hosts; the stream consumers must be pinned to on
 All four were verified by deliberately breaking them and confirming the suite goes red — an
 assertion nobody has seen fail is an assertion nobody should trust.
 
-**11. A second copy of a configuration is a second source of truth.** The Tier L Helm chart
+**S11. A second copy of a configuration is a second source of truth.** The Tier L Helm chart
 and `compose.yaml` both describe the two Redis instances. The chart was written with one
 policy and one size for both — and it worked. Every test passed, the application behaved
 correctly, and the celebrity cache quietly became a duplicate of the ordinary one, which is
@@ -246,7 +254,7 @@ configured identically. Writing that check immediately found a second bug in the
 itself: Helm groups rendered objects by kind, so anchoring on a tier's Service reads forward
 into the *other* tier's Deployment, and the assertion compared the main cache to itself.
 
-**12. A diagnostic that names the wrong cause is worse than none.** `scripts/kind-deploy.sh`
+**S12. A diagnostic that names the wrong cause is worse than none.** `scripts/kind-deploy.sh`
 opened with `kind get clusters | grep -qx "$CLUSTER" || die "cluster not found — run: make
 kind-up"`. With `kind` absent from `PATH` the command fails, the `||` fires, and the script
 confidently reports that a cluster which was up and healthy did not exist — sending the
@@ -255,7 +263,7 @@ no". *Control:* verify the tools first, in a separate step with its own message,
 binary can never be reported as a missing cluster. The general form: any `cmd | test || die`
 attributes every possible failure of `cmd` to the negative case of `test`.
 
-**13. The lock file the default `.gitignore` tells you to discard is the only thing pinning
+**S13. The lock file the default `.gitignore` tells you to discard is the only thing pinning
 your providers.** Terraform's own recommended ignore list contains `.terraform.lock.hcl`, and
 following it means `~> 5.70` resolves to whatever shipped this morning. Two engineers then
 plan different infrastructure from identical code, and the difference appears as an
@@ -267,7 +275,7 @@ compromise. *Control:* the lock is committed for both roots, generated with
 hashes per provider and fails a single-platform lock. Verified by stripping a hash and
 confirming the suite goes red.
 
-**14. A build context that is one level too deep fails as a missing file.**
+**S14. A build context that is one level too deep fails as a missing file.**
 `scripts/kind-deploy.sh` built the web image with the context set to `web/`, while
 `docker/Dockerfile.web` does `COPY web/ ./` against a repo-root context — the same context
 `compose.yaml` uses. The error is `"/web": not found`, which reads as a deleted directory
@@ -276,7 +284,7 @@ one word, but the lesson is that the Dockerfile and every caller share an unwrit
 about where the context root is, and only compose stated it. Both callers now say so in a
 comment next to the path.
 
-**15. `terraform validate` has no opinion about whether the configuration is correct.** It
+**S15. `terraform validate` has no opinion about whether the configuration is correct.** It
 type-checks. A production root with deletion protection off, public nodes, and a bucket open
 to the world validates cleanly, and so does one that restates the DynamoDB schema in HCL
 instead of reading `tools/dynamodb-tables.json` — at which point LocalStack and AWS drift and
@@ -287,7 +295,7 @@ deletion protection, a private API endpoint and a purpose-built VPC, Tier S must
 destroyable, no real account id or state file may be committed, and every IRSA trust policy
 must pin both `:sub` and `:aud`. Verified by breaking three of them.
 
-**16. An IRSA trust policy missing `:aud` still works.** The condition block needs both
+**S16. An IRSA trust policy missing `:aud` still works.** The condition block needs both
 `sub` and `aud`. With only `sub`, the role is assumable by any token the cluster's issuer
 signs, for any audience; with only `aud`, by every service account in the cluster. Either way
 the pods keep working and nothing is logged, so the loss of per-service isolation — the whole
@@ -297,7 +305,7 @@ names in `deploy/envs/prod/`, because the `sub` condition is
 `system:serviceaccount:<ns>:<name>` and a rename on either side silently drops every pod back
 onto the node instance role.
 
-**17. A NetworkPolicy that is right in production is wrong locally, and nothing renders
+**S17. A NetworkPolicy that is right in production is wrong locally, and nothing renders
 differently.** The `allowExternalEgress` rule is `0.0.0.0/0` minus `169.254.169.254/32` and
 the three RFC1918 ranges — the exclusions being the point, since without them every pod can
 reach the node's instance metadata and borrow its role, which defeats IRSA. In Tier P that
@@ -312,7 +320,7 @@ service being unable to reach its database. Two hours were spent on the wrong ho
 first genuinely load-bearing tier difference the register has recorded that is *invisible in
 the manifests* — it exists only in where the dependency lives.
 
-**18. The fan-out worker logged `WARN`, started, reported Ready, and consumed nothing.**
+**S18. The fan-out worker logged `WARN`, started, reported Ready, and consumed nothing.**
 Stream discovery runs once at boot. When it failed — for the reason in row 17 — the worker
 logged `could not discover the stream for table tweets`, continued to `fan-out consumer
 started`, passed both probes and sat at `1/1 Running` with an empty subscription. Tweets were
@@ -343,7 +351,7 @@ bean would have forced `validate-group-membership: false` on every service. And 
 request-serving Deployment — an undiscoverable stream must not be able to take every
 request-serving replica out of the Service and stop writes entirely.
 
-**19. `helm upgrade --reuse-values -f file` silently reverted the image tag.** Re-applying one
+**S19. `helm upgrade --reuse-values -f file` silently reverted the image tag.** Re-applying one
 env file to change a single NetworkPolicy field dropped the `--set image.tag=sha-local` from
 the original install, and the Deployment went back to the chart default `sha-0000000`. With
 `pullPolicy: Never` the new pod sat in `Pending`/`ErrImageNeverPull` while the old one kept
@@ -353,7 +361,7 @@ upgrade` against this cluster — `scripts/kind-deploy.sh` holds the full, corre
 (both values files plus all three `--set` flags) and is the only supported way to apply a
 change.
 
-**20. `terraform validate` passed a `for_each` that could never plan.** The search database
+**S20. `terraform validate` passed a `for_each` that could never plan.** The search database
 module took `for_each = toset(var.allowed_security_group_ids)` and the production root passed
 `module.eks.cluster_security_group_id` — a value that does not exist until the EKS cluster is
 created. Terraform requires `for_each` *keys* to be known at plan time, so the first apply of
@@ -368,7 +376,7 @@ module and root under `mock_provider`, which is the only layer that evaluates co
 rather than reading it. This class — *validate green, first apply fails, later applies
 succeed* — is the reason the test layer exists at all.
 
-**21. A cost check with no API key would have reported green.** Infracost is part of the
+**S21. A cost check with no API key would have reported green.** Infracost is part of the
 Phase 9 gate, but this repository has never been pushed and therefore has no secrets, so
 `INFRACOST_API_KEY` is empty. The obvious wiring — `if: secrets.INFRACOST_API_KEY != ''` on
 the step — produces a job that succeeds having done nothing, and a required check that is
@@ -379,7 +387,7 @@ a breakdown. The check still passes — blocking every merge on an unobtainable 
 — but nobody reading the run can mistake the reason. The same shape applies to every
 third-party gate added later.
 
-**22. A rebuild deployed nothing, and the deploy script reported success.** Tier L pins the
+**S22. A rebuild deployed nothing, and the deploy script reported success.** Tier L pins the
 image tag at `sha-local`. A code change therefore produces a new image under the *same* tag, so
 the rendered Deployment is byte-identical to the running one, Helm finds nothing to change, no
 pod is replaced — and `kubectl rollout status` immediately returns success for the pods that
@@ -392,7 +400,7 @@ content changes. An unconditional `rollout restart` would also have worked but w
 seven workloads whenever one is edited; this restarts only what actually changed, verified by
 running the script twice with no source change and confirming pod ages keep climbing.
 
-**23. The wiring layer had no test at all.** Until this phase the repository contained no Spring
+**S23. The wiring layer had no test at all.** Until this phase the repository contained no Spring
 context test — not one `@SpringBootTest`. Every `@Configuration`, every `@ConfigurationProperties`
 binding, every actuator group and every bean-name reference was therefore first exercised by a
 pod. That is tolerable while configuration is inert, and stops being tolerable the moment a
@@ -407,7 +415,7 @@ laptop that happens to have some. Deliberately invalid values are now set for ev
 `java-conventions`, so the suite behaves identically everywhere and any test that does reach AWS
 fails with an auth error rather than silently using someone's real account.
 
-**24. Spring Boot 4 moved tracing out of the actuator, and the old property still binds.** Every
+**S24. Spring Boot 4 moved tracing out of the actuator, and the old property still binds.** Every
 service set `management.otlp.tracing.endpoint` and exported no spans. Two independent causes,
 both silent. The autoconfiguration now lives in `spring-boot-micrometer-tracing-opentelemetry`,
 which was not on the classpath — having `micrometer-tracing-bridge-otel` and
@@ -420,7 +428,7 @@ worse than if it did not. *Control:* the technique that settles this class in on
 `BOOT-INF/lib` — tells you definitively whether a property is bindable, and the Phase 10 gate is
 a non-zero `otelcol_receiver_accepted_spans` rather than a rendered config.
 
-**25. `RestClient.builder()` severs the trace and nothing fails.** Only the *auto-configured*
+**S25. `RestClient.builder()` severs the trace and nothing fails.** Only the *auto-configured*
 `RestClient.Builder` carries the Micrometer observation interceptor that writes the
 `traceparent` header. The gateway built its own, so it opened a span for each inbound request,
 called upstreams without propagating, and produced traces that stopped at the edge — seven
@@ -429,7 +437,7 @@ incomplete looks exactly like a trace of a system that did no downstream work. *
 gateway and timeline-service inject the builder, and the gate is a trace containing more than
 one `service.name`.
 
-**26. Calico evaluates NetworkPolicy before DNAT, so `6443` is the wrong port.** Prometheus and
+**S26. Calico evaluates NetworkPolicy before DNAT, so `6443` is the wrong port.** Prometheus and
 promtail both had API-server egress allowing only the node's `6443`. In-cluster clients dial
 `kubernetes.default.svc:443`, and the policy is evaluated against the service address, not the
 translated one. Discovery was blocked while a shell on the node could reach the API server
@@ -437,7 +445,7 @@ fine, so every manual check said the network was healthy. *Control:* both polici
 and 6443, and `NoApplicationTargets` fires when discovery returns nothing at all — which
 `up == 0` cannot do, because there is no `up`.
 
-**27. A 401 on `/actuator/prometheus` is invisible except as an absence.** `tweet-service`
+**S27. A 401 on `/actuator/prometheus` is invisible except as an absence.** `tweet-service`
 permitted `/actuator/health/**` and `/actuator/info` but not `/actuator/prometheus`. The pod was
 healthy, the annotation was correct, the port was open, and the only symptom was that its
 metrics — and `tweet-indexer`'s, same image — did not exist. No alert could fire on them because
@@ -446,7 +454,7 @@ no series existed to evaluate. Six of nine targets were down for the same class 
 that had gone stale). *Control:* `TargetDown` is now understood as the compensating control for
 an enumerated egress policy, and is documented as such in its runbook.
 
-**28. Promtail's Kubernetes service discovery fails to zero targets with no error.** With
+**S28. Promtail's Kubernetes service discovery fails to zero targets with no error.** With
 `role: pod` the provider starts, logs `Using pod service account via in-cluster config`, and
 discovers 0/0 forever — at `debug`, against a reachable API server, with a token that returns
 200 from the same network namespace. The readiness message says *"Unable to find any logs to
@@ -457,7 +465,7 @@ the kubelet has already written into the filesystem it is mounting anyway. The S
 is kept but **deliberately unbound**, so reintroducing SD fails with a 403 rather than silently
 regaining that privilege.
 
-**29. A Helm upgrade changed a ConfigMap and no pod picked it up.** The promtail DaemonSet's pod
+**S29. A Helm upgrade changed a ConfigMap and no pod picked it up.** The promtail DaemonSet's pod
 template was byte-identical across the change, so Kubernetes had nothing to roll. `helm upgrade`
 reported success and all three pods kept running the previous config. This is the same class as
 row 22 — a deploy that reports green and changes nothing — in a different layer. *Control:* the
@@ -465,7 +473,7 @@ config body is a named template and the pod template carries a `checksum/config`
 `include` of it. Checksumming `.Values` instead, as is common, would have missed this exact
 change, because the change was in the template body.
 
-**30. LocalStack loses every table on restart, and only the stream consumers notice.** A
+**S30. LocalStack loses every table on restart, and only the stream consumers notice.** A
 Docker Desktop restart bounced the LocalStack pod. Its state is in-memory, so all DynamoDB
 tables and their streams went with it. The four HTTP services stayed `1/1 Running` and kept
 serving — they create items lazily and their readiness probes do not touch DynamoDB — while
@@ -481,7 +489,7 @@ managed DynamoDB and cannot evaporate, so this specific failure is Tier L/S only
 carried as a known weakness rather than papered over with a probe that would make every
 service unready during a transient DynamoDB blip.
 
-**31. A stub Docker config silently disabled BuildKit, and the failure looked like a missing
+**S31. A stub Docker config silently disabled BuildKit, and the failure looked like a missing
 file.** Docker Desktop's credential helper wedged, hanging every `docker pull` indefinitely;
 pointing `DOCKER_CONFIG` at an empty directory fixed the pulls. But CLI plugins are resolved
 relative to `DOCKER_CONFIG` too, so `buildx` disappeared and `docker build` fell back to the
@@ -494,7 +502,7 @@ that fixes one subsystem can silently remove another.**
 
 ---
 
-**32. A canary gate that matches no time series reports success.** The `AnalysisTemplate`
+**S32. A canary gate that matches no time series reports success.** The `AnalysisTemplate`
 selected `service="gateway"`. Nothing in this cluster carries a `service` label — the scrape
 relabelling produces `app`. The query was therefore syntactically valid, semantically
 meaningless, and returned an empty vector on every evaluation. Argo Rollouts scores an empty
@@ -505,7 +513,7 @@ reporting that it had analysed it. *Control:* both `successCondition`s now begin
 query that cannot fail is not a control**, and the only way to know which one you have is to
 run it against a deliberately broken build.
 
-**33. Background analysis is terminated at promotion, and a terminated run is scored
+**S33. Background analysis is terminated at promotion, and a terminated run is scored
 successful.** The canary ran its analysis as `backgroundAnalysis`. When the last canary step
 completed, the rollout promoted and terminated the still-running `AnalysisRun`; the
 controller logged `Metric Assessment Result - Successful: Run Terminated`. With short steps
@@ -515,7 +523,7 @@ of blocking anything — it lost a race it was never told it was in. *Control:* 
 concludes and therefore cannot be outrun. Background analysis is retained only as a
 supplement.
 
-**34. A NetworkPolicy made the gate blind, and blindness read as health.** The `prometheus`
+**S34. A NetworkPolicy made the gate blind, and blindness read as health.** The `prometheus`
 policy admitted Grafana only. The Argo Rollouts controller lives in its own namespace, so
 its queries timed out: `context deadline exceeded`. Combined with row 32 this produced a
 gate that could neither reach its data source nor object to the absence of data.
@@ -524,7 +532,7 @@ a `kubectl port-forward` is proxied by the API server and arrives from the node,
 **bypasses** ingress policy entirely — a working port-forward proves nothing about
 in-cluster reachability, and was the reason this took so long to find.
 
-**35. `status.abort` latches, and the recovery path is not the obvious one.** After an abort
+**S35. `status.abort` latches, and the recovery path is not the obvious one.** After an abort
 Argo sets `status.abort: true` and refuses to roll forward. Pushing a corrected spec does
 nothing; `kubectl argo rollouts retry` was not sufficient. The corrected manifest sat in the
 API server while the broken ReplicaSet served 100% 5xx for roughly fifteen minutes. The
@@ -537,14 +545,14 @@ subresource and waits for `Healthy`, and the drill asserts the rollout is `Healt
 it starts. *Gap:* the catch-22 itself is not fixed in this tier and cannot be — it needs a
 traffic provider that labels canary traffic separately. Production values assume one.
 
-**36. A rate() window at t=0 of a deploy describes the previous deploy.** The first
+**S36. A rate() window at t=0 of a deploy describes the previous deploy.** The first
 measurement fired immediately, and its `rate(...[2m])` lookback straddled the errors from
 the deploy being replaced. With `failureLimit: 0` this aborted known-good builds — the gate
 was accurate about a question nobody asked. *Control:* `initialDelay >= lookback`, made
 configurable per environment (dev `1m`, prod `2m`), and the drill now starts steady traffic
 **before** mutating the rollout, with a 90 s warm-up.
 
-**37. Spring Boot publishes no histogram buckets by default, so a p95 gate is silently
+**S37. Spring Boot publishes no histogram buckets by default, so a p95 gate is silently
 empty forever.** `histogram_quantile()` over `http_server_requests_seconds_bucket` looks
 entirely reasonable and had never once returned a value, because the metric does not exist
 unless `management.metrics.distribution.percentiles-histogram` is enabled. Enabling it
@@ -555,7 +563,7 @@ misconfiguration presents as an application bug. *Control:* all five services se
 histogram flag and **both** bounds; the buckets are now confirmed present (528 series for
 the gateway alone).
 
-**38. In this tier the emulator is the load ceiling, not the application.** At 30 rps the
+**S38. In this tier the emulator is the load ceiling, not the application.** At 30 rps the
 application was comfortable — 8385 requests, zero failures, timeline p95 21 ms, HPA scaling
 2 → 3 → 5. LocalStack was not: it was `OOMKilled` at its 1 Gi limit, and because its state
 is an `emptyDir` plus an in-process index, the restart destroyed every DynamoDB table
@@ -570,7 +578,7 @@ traffic share without a mesh, so a "20% canary" is 20% of pods and only approxim
 requests; and the load generator, Kubernetes, and the emulated AWS control plane all share
 one machine, so they contend for the very CPU the measurement is about.
 
-**39. Six independent defects, one failure mode.** Rows 32–37 were found in a single
+**S39. Six independent defects, one failure mode.** Entries S32–S37 were found in a single
 afternoon by one script. Every one of them made the canary gate fail **open**: a wrong label,
 a terminated background run, a blocked NetworkPolicy, an empty numerator, a misaligned
 lookback window, and a metric that was never published. Each, alone, would have promoted a
@@ -581,13 +589,13 @@ been observed rejecting anything is a hypothesis. The corresponding control run
 (`--healthy`) matters just as much, because a gate that rejects everything is equally
 useless and looks identical in a one-sided test.
 
-**40. A correct report can still be a useless one.** The risk commenter's first run against
+**S40. A correct report can still be a useless one.** The risk commenter's first run against
 the real production root produced 25 identical `medium` findings — one per IAM resource,
 each saying `aws_iam_role changes who can do what`. Every one was accurate: the root is
 greenfield, so every role in the design is a create, and creating a role does change who
 can do what. A reviewer reads that table once, concludes the section is boilerplate, and
 collapses it permanently — at which point the tool detects nothing while reporting full
-coverage. That is the same **fail-open** outcome as rows 32–39 reached from the opposite
+coverage. That is the same **fail-open** outcome as S32–S39 reached from the opposite
 direction: those gates failed open by measuring nothing, this one would have failed open by
 measuring everything. *Control:* type-based flagging is replaced by a content check on
 created security resources (wildcard action, wildcard principal, open ingress); modified
@@ -595,7 +603,7 @@ ones still get the generic finding, because there the risk is in the delta; clea
 are **counted and disclosed, not silently dropped**. 25 findings became 2, and both
 survivors are real. *Gap:* none — the control is identical in all three tiers.
 
-**41. A test suite proves nothing until it has been seen to fail.** `aiops-selftest.sh` was
+**S41. A test suite proves nothing until it has been seen to fail.** `aiops-selftest.sh` was
 green at 52 assertions. Five mutations were then introduced into `risk.py` one at a time;
 four were caught and the fifth — deleting the `mode != "managed"` filter, which makes the
 tool report findings for data sources describing infrastructure the plan does not touch —
@@ -604,6 +612,21 @@ was not. *Control:* the safe fixture now contains a `data "aws_security_group"` 
 produces four failures. *Gap:* none, but the practice generalises — every assertion count
 quoted anywhere in this repository should be read as "untested" until someone has watched
 it go red.
+
+**S42. A rule that is written down is not a rule.** This document's own maintenance section
+has always said that *"any row whose 'how the repo proves it' column names an artefact that
+does not exist is a bug, not a plan"*. Nothing checked it. When a script was finally written
+to, it found that the register table (`1`–`27`) and these silent-failure classes (then also
+`1`–`41`) were **two independent numbering schemes that the entire repository cited
+identically**, as "gap row N". Two citations were resolving to the wrong entry as a result:
+`deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
+approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
+A comment that misdirects is worse than no comment, because it spends the reader's trust
+first. *Control:* the classes are namespaced `S1`–`S42`, the ambiguous `gap row N` form is
+banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
+link in the repository against this file on every CI run — unfiltered, because a dead
+citation can be written into any directory. It was mutation-tested on six defects and caught
+all six. *Gap:* none.
 
 ---
 

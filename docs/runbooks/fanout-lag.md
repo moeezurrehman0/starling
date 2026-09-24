@@ -56,7 +56,7 @@ calmly processing a two-hour backlog.
    ```
 
    Note: this requires cAdvisor metrics, which are not scraped in Tier L. See
-   the gap register row on kube-state-metrics.
+   gap register row 26 (infrastructure metrics).
 
 ## Common causes
 

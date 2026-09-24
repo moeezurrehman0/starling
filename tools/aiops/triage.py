@@ -81,7 +81,7 @@ def promql(base: str, query: str) -> str:
     """Run an instant query and flatten it to one human-readable line.
 
     Returns the string `no data` for an empty result rather than `0`. The
-    distinction cost this project an entire canary gate (gap register row 32):
+    distinction cost this project an entire canary gate (gap S32):
     an empty vector is the absence of evidence, and rendering it as a number
     invents a measurement that was never taken.
     """

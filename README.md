@@ -39,7 +39,12 @@ this repo that proves each production path.** It is the most useful document her
 |-----|----------|
 | [`docs/01-system-design.md`](docs/01-system-design.md) | Requirements, scale targets, service decomposition, data model, timeline fan-out strategy |
 | [`docs/02-workflow.md`](docs/02-workflow.md) | How code moves: developer → CI → registry → GitOps → cluster → observability |
-| [`docs/16-gap-register.md`](docs/16-gap-register.md) | Sandbox vs. production, row by row |
+| [`docs/03-deployment.md`](docs/03-deployment.md) | Helm charts, overlays, ArgoCD app-of-apps, PSS and NetworkPolicies |
+| [`docs/04-infrastructure.md`](docs/04-infrastructure.md) | Terraform modules, the sandbox and production roots, and how the latter is validated without applying |
+| [`docs/05-observability.md`](docs/05-observability.md) | Metrics, logs, traces, SLOs, alerts and the runbooks they link to |
+| [`docs/06-load-and-delivery.md`](docs/06-load-and-delivery.md) | k6 load model, HPA scale-out, canary analysis, and the eight fail-open defects found proving it worked |
+| [`docs/07-aiops.md`](docs/07-aiops.md) | Why the risk commenter's severities are decided by code and only its prose by a model |
+| [`docs/16-gap-register.md`](docs/16-gap-register.md) | Sandbox vs. production, row by row — the headline deliverable |
 | [`docs/adr/`](docs/adr/) | Architecture Decision Records |
 | [`docs/diagrams/`](docs/diagrams/) | C4 context, C4 container, request-flow sequences, delivery pipeline |
 | [`docs/runbooks/`](docs/runbooks/) | One runbook per alert |
@@ -56,18 +61,21 @@ enforced. No business logic yet.
 |---|-------|------|-------|
 | 1 | System design, diagrams, ADRs, gap register | — | **done** |
 | 2 | Monorepo scaffold, Gradle/Java 25/Boot 4.1.1, conventions | — | **done** |
-| 3 | jlink + CDS distroless base image | — | next |
-| 4 | Services + web + compose stack | L | |
-| 5 | CI pipeline | L | |
-| 6 | Playground capability probe | S | |
-| 7 | Helm charts, overlays, ArgoCD on kind | L | |
-| 8 | Terraform sandbox profile, `make sandbox-up` | S | |
-| 9 | Terraform production profile + `terraform test` | P | |
-| 10 | Observability across tiers | L + S | |
-| 11 | k6 load test, HPA, canary auto-abort, rollback drill | L + S | |
-| 12 | AIOps: Terraform risk commenter, alert triage agent | L | |
-| 13 | Gap register finalised | — | |
-| 14 | Docs pass, 180-minute demo script | — | |
+| 3 | jlink + CDS distroless base image | — | **done** |
+| 4 | Services + web + compose stack | L | **done** |
+| 5 | CI pipeline | L | **done** |
+| 6 | Playground capability probe | S | written and CI-gated; **awaits a session** |
+| 7 | Helm charts, overlays, ArgoCD on kind | L | **done** |
+| 8 | Terraform sandbox profile, `make sandbox-up` | S | written and validated; **apply awaits a session** |
+| 9 | Terraform production profile + `terraform test` | P | **done** |
+| 10 | Observability across tiers | L + S | **done** on L; EKS run awaits a session |
+| 11 | k6 load test, HPA, canary auto-abort, rollback drill | L + S | **done** on L; EKS run awaits a session |
+| 12 | AIOps: Terraform risk commenter, alert triage agent | L | **done** |
+| 13 | Gap register finalised | — | **done** — enforced by `make gap-verify` |
+| 14 | Docs pass, 180-minute demo script | — | next |
+
+Anything marked *awaits a session* is written, tested and CI-gated; what is missing is a
+180-minute KodeKloud window to run it against real AWS, not code.
 
 ---
 

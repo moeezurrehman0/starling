@@ -167,7 +167,7 @@ for `subprocess`, `kubectl`, `boto3`, `os.system` and any POST. The contract is 
 "we intend not to mutate"; it is a test that fails if a mutating import appears.
 
 One detail carries the whole Phase 11 lesson forward: `promql()` returns the *string*
-`no data` for an empty vector, never `0`. Gap row 32 exists because an empty Prometheus
+`no data` for an empty vector, never `0`. Gap S32 exists because an empty Prometheus
 result scored as success. An agent that renders "error rate: 0%" when the query returned
 nothing would be the same defect with better grammar.
 
@@ -242,4 +242,4 @@ of this phase that actually works everywhere.
 
 - `AGENTS.md` — the safe-execution contract these agents operate under
 - `docs/06-load-and-delivery.md` — the fail-open defect class this design reacts to
-- `docs/16-gap-register.md` — row 20 (Bedrock), rows 32–39 (fail-open gates)
+- `docs/16-gap-register.md` — register row 20 (Bedrock), silent-failure classes S32–S41

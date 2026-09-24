@@ -151,6 +151,25 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck scripts/*.sh tools/*.sh
 
+  # ---------------------------------------------------------------------------
+  # The gap register is this project's headline deliverable, and its own
+  # maintenance section states that a row naming an artefact which does not
+  # exist is a bug rather than a plan. That rule was written down and never
+  # enforced, which is how two comments in the source tree came to point at the
+  # wrong entry: the register table (1-27) and the silent-failure classes
+  # (S1-S41) were two numbering schemes, both cited as "gap row N".
+  #
+  # Deliberately unfiltered. A dead citation can be introduced from `deploy/`,
+  # `load/`, `tools/`, `services/` or `docs/` -- anywhere a comment can be
+  # written -- so a path filter here would be a gate that is absent exactly when
+  # it is needed. The script is grep-only and takes about a second.
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/gap-verify.sh
+
   helm:
     name: Helm
     needs: changes
@@ -634,7 +653,7 @@ jobs:
   verdict:
     name: CI
     if: always()
-    needs: [changes, java, web, secrets, scripts, helm, terraform, cost, aiops, codeql, images, e2e]
+    needs: [changes, java, web, secrets, scripts, docs, helm, terraform, cost, aiops, codeql, images, e2e]
     runs-on: ubuntu-latest
     steps:
       # The single required check for branch protection. Listing the individual jobs there
