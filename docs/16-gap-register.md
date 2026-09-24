@@ -465,6 +465,33 @@ config body is a named template and the pod template carries a `checksum/config`
 `include` of it. Checksumming `.Values` instead, as is common, would have missed this exact
 change, because the change was in the template body.
 
+**30. LocalStack loses every table on restart, and only the stream consumers notice.** A
+Docker Desktop restart bounced the LocalStack pod. Its state is in-memory, so all DynamoDB
+tables and their streams went with it. The four HTTP services stayed `1/1 Running` and kept
+serving — they create items lazily and their readiness probes do not touch DynamoDB — while
+`fanout-worker` and `tweet-indexer` went into `CrashLoopBackOff`. The only honest signal was
+a `StreamArns` WARN and `stream_resolved{group=...} == 0`, which had been dismissed earlier
+as a metric bug. *Control:* `stream_resolved` is now understood as a data-plane liveness
+signal rather than a startup detail, and `FanoutStreamUnresolved` alerts on it with
+`docs/runbooks/fanout-stream-unresolved.md` describing the re-bootstrap. The deeper lesson is
+that **the services that fail loudly are not the ones that lost data** — the HTTP tier
+reported healthy against a store that had been emptied underneath it. In Tier P the store is
+managed DynamoDB and cannot evaporate, so this specific failure is Tier L/S only; the
+*asymmetry* it exposes — readiness probes that never touch the datastore — is not, and is
+carried as a known weakness rather than papered over with a probe that would make every
+service unready during a transient DynamoDB blip.
+
+**31. A stub Docker config silently disabled BuildKit, and the failure looked like a missing
+file.** Docker Desktop's credential helper wedged, hanging every `docker pull` indefinitely;
+pointing `DOCKER_CONFIG` at an empty directory fixed the pulls. But CLI plugins are resolved
+relative to `DOCKER_CONFIG` too, so `buildx` disappeared and `docker build` fell back to the
+legacy builder. The legacy builder does not honour `.dockerignore` re-inclusion (`!pattern`
+after `*`), so the build failed with `file not found in build context` for a jar that plainly
+existed on disk. *Control:* none in the repo — this is a host-toolchain trap, recorded because
+the presenting symptom ("file does not exist" for a file that does exist) points nowhere near
+the cause, and because it is a concrete instance of a general rule: **an environment override
+that fixes one subsystem can silently remove another.**
+
 ---
 
 ## Maintenance
