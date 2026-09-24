@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S54`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S55`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S54`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S55`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -853,6 +853,33 @@ rewrote the risk rules ran every other gate and not the one it changed — and h
 rewrite been wrong, `main` would have taken it green. The job now has its own filter.
 *Gap:* nothing checks that a job's condition covers the job's own inputs, so this class
 is only ever found by noticing a job that should have run and did not.
+
+**S55. The single required check was required by nothing.** This file has said from the
+start that the `verdict` job is "the single required check", and for the whole of the
+project's life it was not required anywhere: `main` had no protection, so every commit in
+this history was pushed straight to it, including the ones that fixed the pipeline. The
+workflow triggers were never the problem — `pull_request` fires on any branch and `push`
+only on `main`, which is correct — the problem is that a trigger describes what runs, not
+what must pass. Enforcing it turned out to be impossible on the plan the repository was
+on: both branch protection and rulesets return `403 Upgrade to GitHub Pro or make this
+repository public` for a private free repository, so the rule could be written down and
+followed by hand but not applied. *Gap, now closed by changing the repository rather than
+the code:* it is public, and a ruleset requires a pull request and a green `CI` before
+anything reaches `main`, with no bypass actors — the rule applies to the owner too. What
+does not generalise is the fix. On a private repository under a free plan this control
+cannot exist at all, and a pipeline's guarantees can therefore depend on billing, which
+is not a property any amount of care in the repository can compensate for.
+
+Going public had a cost worth recording. Fifty-one of fifty-five commits were authored
+under an employer email address, and rewriting history does not retract what GitHub keeps:
+commits attached to a pull request stay reachable under `refs/pull/*` indefinitely, so the
+address would have remained visible on merged PRs even after `main` was clean. The
+history was rewritten, the tree verified byte-identical to a pre-rewrite bundle, and the
+repository recreated rather than flipped — which cost the pull requests and the AIOps
+comments on them. *Gap:* the identity a commit carries is decided by local git
+configuration at the moment of the commit, and nothing in this pipeline checks it. Every
+gate here reads the content of a change; none of them read who it says wrote it, and that
+is the one field that cannot be corrected after publication.
 
 ---
 
