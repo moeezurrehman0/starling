@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S50`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S51`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S50`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S51`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -761,6 +761,23 @@ managed by the Spring Boot 4.1.1 BOM and fixed in 11.0.25), and five HIGH in the
 now held ahead of the BOM by a constraint; the base moved to `debian13`, which scans
 clean. Both were only visible because the scan was made to run, which is the honest
 summary of what a gate that has never executed is worth.
+
+**S51. A correct readiness signal made a correct image unverifiable.** With the scan
+fixed, four of the five image jobs passed and `fanout-worker` failed at verification with
+"service did not become healthy". Nothing was wrong with it. It is the only service that
+consumes a DynamoDB stream, its `stream` indicator is deliberately in the readiness group
+rather than liveness, and until a stream resolves it reports `OUT_OF_SERVICE` — so
+`/actuator/health` answered 503 and the probe, which asks only whether the service is
+healthy, read that as a broken image. The container log was dominated by OTLP span-export
+failures against an absent collector, which were pure noise: the four passing services
+emit exactly the same errors. The fix is to tell the worker it is not supposed to be
+consuming (`FANOUT_ENABLED=false`), which is a case the indicator already models
+explicitly — it reports `UP` with `consuming: false`. *Gap:* the verification therefore
+never exercises the stream path, and the class is broader than this one service. A smoke
+test that boots a service with its dependencies absent can only assert readiness for
+services whose readiness does not depend on them; every honest readiness signal narrows
+what such a test can prove, and the two have to be designed against each other rather
+than discovered in CI.
 
 ---
 

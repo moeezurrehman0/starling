@@ -57,7 +57,17 @@ echo "verifying ${IMAGE}"
 # context refresh with no network. See docker/Dockerfile for why each is
 # needed. Without them this check would only ever pass for services that have
 # no persistence, which is exactly the subset that cannot go wrong.
+#
+# FANOUT_ENABLED=false is the same idea for the one worker. Its `stream`
+# indicator is in the readiness group and reports OUT_OF_SERVICE until it has
+# resolved a DynamoDB stream, which here does not exist -- so /actuator/health
+# is 503 and the service never "becomes healthy", even though the context
+# refreshed perfectly. The indicator already models this exact case: told it is
+# not supposed to be consuming, it reports UP with consuming:false. Forcing the
+# stream to resolve instead would mean standing up DynamoDB Streams to verify
+# that a container image boots, which is a different test.
 docker run -d --name "${NAME}" -p "${PORT}:8080" \
+  -e FANOUT_ENABLED=false \
   -e SERVER_PORT=8080 \
   -e SPRING_PROFILES_ACTIVE=smoke \
   -e JAVA_TOOL_OPTIONS="-Xlog:cds=info" \
