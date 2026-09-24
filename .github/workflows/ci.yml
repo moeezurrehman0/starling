@@ -179,6 +179,24 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/gap-verify.sh
 
+      # A Mermaid syntax error does not fail anything. GitHub renders the block
+      # as an inert grey box and says nothing, so the README's lead diagram --
+      # the first thing any reader sees -- can break on a one-character edit and
+      # stay broken indefinitely. Rendering each diagram is the only way to find
+      # out, and it costs about a minute. Negative-tested against a deliberately
+      # malformed node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Diagrams parse
+        run: |
+          npm install --no-save @mermaid-js/mermaid-cli
+          for f in docs/diagrams/*.mmd; do
+            printf '%-28s ' "$(basename "$f")"
+            npx mmdc -i "$f" -o "/tmp/$(basename "$f").svg" >/tmp/mmd.log 2>&1 \
+              && echo OK || { echo FAIL; tail -20 /tmp/mmd.log; exit 1; }
+          done
+
   helm:
     name: Helm
     needs: changes

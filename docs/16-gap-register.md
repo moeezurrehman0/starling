@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S43`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S44`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S43`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S44`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -651,6 +651,16 @@ stops reading the output at all. All of it is asserted against stub binaries in
 `scripts/sandbox-selftest.sh` (47 assertions, mutation-tested on seven defects, all seven
 caught), because these scripts run once per session against an account nobody can reproduce.
 *Gap:* the sweep has never run against a real account — only against stubs.
+
+**S44. A broken diagram renders as a blank box, not as an error.** Every diagram in this
+repo is Mermaid, rendered by GitHub at view time, and nothing validated any of them. A
+syntax error does not fail a build, produce a warning or mark the file — GitHub renders an
+inert grey box and moves on. The README leads with a diagram, so the first thing a reader
+sees could have broken on a one-character edit and stayed broken indefinitely, and the only
+detection mechanism was someone happening to look. *Control:* the `docs` CI job renders all
+five with `mmdc` and fails on a parse error. Negative-tested against a deliberately
+malformed node, which the gate caught. *Gap:* none — the renderer is the same engine GitHub
+uses, so a pass here is a pass there.
 
 ---
 
