@@ -39,6 +39,11 @@ on:
 
 permissions:
   contents: read
+  # On a pull_request event dorny/paths-filter does not diff refs -- it asks the API
+  # which files the PR touches, so it needs to be able to read the pull request. The
+  # default token does not grant this, and the failure is only visible on PRs: every
+  # push run passes, because on a push the same action diffs commits locally.
+  pull-requests: read
 
 jobs:
   detect:

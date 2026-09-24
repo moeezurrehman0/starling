@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S51`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S53`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S51`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S53`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -778,6 +778,36 @@ test that boots a service with its dependencies absent can only assert readiness
 services whose readiness does not depend on them; every honest readiness signal narrows
 what such a test can prove, and the two have to be designed against each other rather
 than discovered in CI.
+
+**S52. The release automation had never once succeeded, and the cause was not in the
+repository.** With CI green, the Release workflow was still failing on every push, as it
+had from the first run. `release-please` did all of its work correctly — computed the
+version, wrote the changelog, created the branch and the commit — and then failed on the
+last call with `GitHub Actions is not permitted to create or approve pull requests`. That
+is a repository setting, off by default, and nothing in the checked-out tree can express
+it or detect that it is wrong. The workflow's `permissions:` block was correct and
+irrelevant: it grants what the token may request, not what the repository allows the
+token to do. Enabling the setting made the same unchanged workflow pass. Its first PR
+then sat with its checks in `action_required`, because workflows raised by a bot author
+need manual approval, so the automation could have appeared to work while silently never
+being verified. *Gap:* both are account-level state held outside version control, so a
+rebuild of this repository elsewhere reproduces neither the fix nor the diagnosis. The
+class is the general one — a pipeline can be entirely correct as code and still be
+disabled by configuration that the code cannot see, and the only signal is a job that has
+never been green.
+
+**S53. Half the pipeline had only ever run on one event.** Every gate in this repository
+was written to run on both `push` and `pull_request`, and until the release automation
+opened PR #9 only the push half had ever executed. On the first real PR run two jobs
+failed immediately, both with `Resource not accessible by integration`: `paths-filter`
+and `gitleaks` each ask the API to list what the pull request contains, and the default
+token grants no `pull-requests` scope. Neither makes that call on a push — the filter
+diffs commits locally and gitleaks scans history — so both had passed every time while
+being broken for the event they matter most on. The fix is one `pull-requests: read` in
+each. *Gap:* what this exposes is not the missing scope but that a green history proves
+nothing about an event that has never fired. The same is true of everything still only
+triggered from a tag or a schedule here, and CI has no way to tell the difference between
+a job that passes and a job that has never been asked to run.
 
 ---
 

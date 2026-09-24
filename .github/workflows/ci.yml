@@ -114,6 +114,12 @@ jobs:
   secrets:
     name: Secrets
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks lists the pull request's commits over the API to decide what to scan,
+      # so on a PR it needs to read the pull request. Without this the job fails with a
+      # 403 on PRs only -- on a push it never makes the call.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
