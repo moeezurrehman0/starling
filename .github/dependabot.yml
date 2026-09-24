@@ -33,13 +33,36 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
+      # eslint-config-next is released in lockstep with next and has to move with it, but it
+      # is a devDependency, so the default grouping puts it in dev-dependencies and next in
+      # its own group -- two PRs, neither of which can pass alone. Naming it here keeps the
+      # one decision in one place. Grouping is configured by where a dependency sits in the
+      # manifest; coupling is a property of the release.
       next:
         patterns:
           - "next"
           - "react"
           - "react-dom"
+          - "eslint-config-next"
       dev-dependencies:
         dependency-type: development
+        exclude-patterns:
+          - "eslint-config-next"
+    ignore:
+      # Held deliberately, not overlooked. Both were tried on the Next 16 upgrade and both
+      # break the lint step, which is the only thing that reads them:
+      #
+      #   typescript 7 -- typescript-eslint refuses to load against it outright
+      #                   ("typescript-eslint does not support TS 7.0")
+      #   eslint 10    -- eslint-plugin-react, pulled in by eslint-config-next, calls a
+      #                   context API that ESLint 10 removed
+      #
+      # Revisit when eslint-config-next ships a dependency set that accepts them; drop the
+      # entry rather than pinning around it.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      - dependency-name: "eslint"
+        versions: [">=10"]
     commit-message:
       prefix: "build"
 

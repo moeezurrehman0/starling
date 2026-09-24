@@ -8,10 +8,15 @@ const nextConfig: NextConfig = {
    */
   output: "standalone",
 
-  // The build must fail on a type error or a lint error, not warn. This is the frontend's
-  // equivalent of the JVM side's -Werror.
+  // The build must fail on a type error, not warn. This is the frontend's equivalent of the
+  // JVM side's -Werror.
+  //
+  // There was an `eslint: { ignoreDuringBuilds: false }` here too. Next 16 removed ESLint
+  // from the build and the key from NextConfig, so keeping it is a type error. The gate did
+  // not go away with it: the web job runs `npm run lint` as its own step, which is where
+  // lint belonged anyway -- a lint failure and a build failure are different questions and
+  // reading them off one exit code was never worth the convenience.
   typescript: { ignoreBuildErrors: false },
-  eslint: { ignoreDuringBuilds: false },
 
   // The version banner is a free disclosure of which Next release to look up CVEs for.
   poweredByHeader: false,
