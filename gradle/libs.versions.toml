@@ -44,8 +44,15 @@ boot-webmvc-test = { module = "org.springframework.boot:spring-boot-webmvc-test"
 boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
 
 # --- Observability ---------------------------------------------------------
+micrometer-core = { module = "io.micrometer:micrometer-core" }
 micrometer-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
 micrometer-tracing-bridge-otel = { module = "io.micrometer:micrometer-tracing-bridge-otel" }
+# Spring Boot 4 split tracing out of spring-boot-actuator-autoconfigure. Without this
+# module there is no Tracer, no OTLP span exporter and no traceId in the MDC -- and no
+# error either: management.otlp.tracing.endpoint simply binds to nothing, the app starts,
+# serves traffic, and exports no spans. The bridge and exporter libraries above are
+# necessary but not sufficient; they are what Boot wires, not what wires them.
+boot-tracing-otel = { module = "org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry" }
 otel-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp" }
 
 # --- Persistence: DynamoDB (operational store, ADR-0011) -------------------
@@ -93,7 +100,7 @@ plugin-spotless = { module = "com.diffplug.spotless:spotless-plugin-gradle", ver
 plugin-spotbugs = { module = "com.github.spotbugs:com.github.spotbugs.gradle.plugin", version.ref = "spotbugs" }
 
 [bundles]
-observability = ["micrometer-prometheus", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
+observability = ["micrometer-prometheus", "boot-tracing-otel", "micrometer-tracing-bridge-otel", "otel-exporter-otlp"]
 dynamodb = ["aws-dynamodb", "aws-dynamodb-enhanced", "aws-apache-client"]
 search-persistence = ["boot-jdbc", "postgresql", "boot-flyway", "flyway-core", "flyway-postgresql"]
 testing = ["boot-test", "assertj", "archunit"]

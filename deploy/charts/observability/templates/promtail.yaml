@@ -1,0 +1,244 @@
+{{- include "observability.guard" . }}
+{{/*
+Log collection, in its own namespace at its own privilege level.
+
+Promtail is the one component here that cannot satisfy the restricted Pod
+Security Standard. It mounts /var/log/pods from the node, because there is no
+API that streams every container's output at volume -- reading the files the
+kubelet already writes is the only mechanism that exists. A hostPath mount is
+forbidden by `baseline`, never mind `restricted`.
+
+The obvious response is to relax the observability namespace to `privileged`.
+That would put Grafana -- an HTTP user interface with a plugin system and a
+datasource proxy, the most exposed surface in the stack -- at the same
+privilege level as the process that can read every container's logs on the
+node, including the ones belonging to workloads in other namespaces.
+
+So the exemption is scoped to the workload that needs it. This namespace holds
+one DaemonSet and nothing else, and the day something else wants to live here
+the question "does this need node-level access?" is forced rather than assumed.
+*/}}
+{{/*
+The config body lives in a named template so the DaemonSet can checksum exactly
+what the ConfigMap contains. Checksumming .Values instead would miss every
+change made in this file, which is where all of the interesting config is.
+*/}}
+{{- define "promtail.config" -}}
+server:
+  http_listen_port: 3101
+  log_level: warn
+positions:
+  # On an emptyDir, so a restarted promtail re-reads from the beginning of
+  # each file it still finds. Duplicates in Loki are the failure mode, and
+  # they are the right one to choose: the alternative is a hostPath write,
+  # which would mean the log collector can modify the node's filesystem.
+  filename: /run/promtail/positions.yaml
+clients:
+  - url: http://loki.{{ .Values.namespace }}.svc.cluster.local:3100/loki/api/v1/push
+scrape_configs:
+  # Targets come from the filesystem, not from the Kubernetes API.
+  #
+  # The obvious design is kubernetes_sd_configs with role: pod, and that is
+  # what the upstream chart ships. It does not work here: promtail 3.3.2
+  # starts the discovery provider, logs "Using pod service account via
+  # in-cluster config", and then discovers 0/0 targets forever -- with no
+  # error at any log level, against a reachable API server, with a token
+  # that returns 200 on /api/v1/pods from the same network namespace.
+  # The readiness probe reports "Unable to find any logs to tail. Please
+  # verify permissions, volumes, scrape_config, etc.", which points at the
+  # volume mount rather than at discovery, and costs an hour.
+  #
+  # Reading the kubelet's own directory layout instead is not a workaround
+  # so much as the better design for a node agent:
+  #   * a DaemonSet pod only ever has its own node's files mounted, so the
+  #     node filter is structural rather than a relabel rule that silently
+  #     matches nothing if NODE_NAME fails to expand;
+  #   * it needs no ClusterRole at all. A log collector that can list every
+  #     pod in the cluster is a large blast radius for something whose job
+  #     is to read files;
+  #   * it cannot miss a short-lived pod that started and exited between
+  #     two discovery refreshes -- the file is on disk either way.
+  #
+  # The cost is that pod labels are not available, only what the path
+  # encodes: /var/log/pods/<namespace>_<pod>_<uid>/<container>/<n>.log.
+  - job_name: pods
+    static_configs:
+      - targets: [localhost]
+        labels:
+          node: ${NODE_NAME}
+          __path__: /var/log/pods/*/*/*.log
+    pipeline_stages:
+      # The kubelet writes CRI framing: "<ts> <stream> <flags> <line>".
+      # Without this stage every field below is parsed out of a line that
+      # still has a timestamp glued to the front of it.
+      - cri: {}
+      # Recover the identity the path encodes. The pod name is greedy and
+      # the uid is not, because pod names themselves contain underscores
+      # (a Deployment pod is <name>-<hash>-<suffix> but a namespace never
+      # contains one) -- anchoring on the trailing uid is what makes this
+      # unambiguous.
+      - regex:
+          source: filename
+          expression: '^/var/log/pods/(?P<namespace>[^_/]+)_(?P<pod>.+)_[^_/]+/(?P<container>[^/]+)/[^/]+\.log$'
+      # The services log ECS JSON. Without this stage every line is an opaque
+      # string and the only query possible is a substring match, which is how
+      # a structured logging setup ends up being used like an unstructured one.
+      - json:
+          expressions:
+            level: log.level
+            logger: log.logger
+            message: message
+            # Spring Boot's ECS encoder promotes the MDC trace context as camelCase
+            # traceId/spanId, not the snake_case trace_id the OTel log conventions use.
+            # Extracting the wrong name costs nothing at ingest and silently breaks the
+            # Loki-to-Tempo link, which is only noticed when someone needs it.
+            trace_id: traceId
+            span_id: spanId
+      - labels:
+          namespace:
+          pod:
+          container:
+          level:
+      # trace_id is attached as structured metadata rather than as a label.
+      # A label with one value per trace would create a new Loki stream per
+      # request, which is the canonical way to make Loki fall over.
+      - structured_metadata:
+          trace_id:
+          span_id:
+      # filename is redundant once namespace/pod/container are labels, and
+      # it changes on every log rotation -- keeping it would churn streams.
+      - labeldrop:
+          - filename
+{{- end }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail
+  namespace: {{ .Values.agentNamespace }}
+data:
+  promtail.yaml: |
+{{ include "promtail.config" . | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: {{ .Values.agentNamespace }}
+# Deliberately bound to no Role or ClusterRole. Promtail reads the node's log
+# directory and never calls the API server, so the upstream chart's cluster-wide
+# pod read is privilege this collector does not need. The account exists only
+# because every pod has one; leaving it unbound makes that explicit and means an
+# accidental reintroduction of kubernetes_sd_configs fails loudly with a 403
+# rather than quietly gaining cluster-wide read.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: {{ .Values.agentNamespace }}
+  labels:
+    app.kubernetes.io/name: promtail
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+  template:
+    metadata:
+      annotations:
+        # Promtail does not reload on ConfigMap change, and a DaemonSet whose
+        # pod template is byte-identical is not rolled by helm upgrade. Without
+        # this, editing the scrape config produces a successful upgrade, an
+        # updated ConfigMap, and three pods still running the previous config.
+        checksum/config: {{ include "promtail.config" . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: promtail
+    spec:
+      serviceAccountName: promtail
+      securityContext:
+        # Root, and stated rather than inherited. The log files under
+        # /var/log/pods are written root-owned with no group read bit, so a
+        # non-root promtail starts cleanly, discovers every pod, and ships
+        # nothing -- the permission errors are per-file and logged at debug.
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      # Tolerate the control-plane taint. kind runs system pods there, and
+      # without this their logs are the ones missing during an incident.
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: promtail
+          image: {{ .Values.promtail.image }}
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+            - -config.expand-env=true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http
+              containerPort: 3101
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources: {{- toYaml .Values.promtail.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/promtail}
+            - {name: positions, mountPath: /run/promtail}
+            - {name: pods, mountPath: /var/log/pods, readOnly: true}
+            # /var/log/pods entries are symlinks into here. Mounting only the
+            # first gives a promtail that lists files correctly and reads none
+            # of them, because the symlink targets are outside its mount
+            # namespace -- and the resulting error is a per-file debug line.
+            - {name: containers, mountPath: /var/lib/docker/containers, readOnly: true}
+      volumes:
+        - {name: config, configMap: {name: promtail}}
+        - {name: positions, emptyDir: {}}
+        - {name: pods, hostPath: {path: /var/log/pods}}
+        - {name: containers, hostPath: {path: /var/lib/docker/containers}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: promtail
+  namespace: {{ .Values.agentNamespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+  # Egress only, and no ingress rules. Nothing should ever open a connection to
+  # the log collector; its /ready endpoint is reached by the kubelet, which is
+  # not subject to NetworkPolicy.
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - {port: 3100, protocol: TCP}

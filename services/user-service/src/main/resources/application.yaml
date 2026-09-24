@@ -25,9 +25,14 @@ management:
   tracing:
     sampling:
       probability: 1.0
-  otlp:
+  opentelemetry:
     tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+      export:
+        otlp:
+          # Spring Boot 4 renamed this from management.otlp.tracing.endpoint. The old
+          # key still binds, which is worse than if it did not: a typo or a stale key
+          # produces no warning and no spans.
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
 
 logging:
   structured:

@@ -1,0 +1,195 @@
+{{- include "observability.guard" . }}
+{{/*
+The monitoring namespace's own policies.
+
+Easy to skip, on the grounds that the stack is internal. The reason not to skip
+it: Prometheus holds cluster-wide read access and Grafana proxies queries to
+every datasource on behalf of whoever opens it. Between them they are a better
+starting point for moving around a cluster than most applications are.
+*/}}
+---
+# Default deny, both directions. Every rule below is an exception to this, which
+# is the only ordering that fails closed -- a component added later has no
+# connectivity until someone writes down what it needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Grafana queries it, and a human port-forwards to it. A port-forward is
+    # proxied by the API server and arrives from the node, so it is not subject
+    # to this policy -- worth knowing before concluding the rule is wrong.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - {port: 9090, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Scraping. Deliberately broad on the destination and narrow on the port:
+    # Prometheus discovers pods across the cluster and must reach whichever
+    # ports they annotate, so enumerating destinations here would mean editing
+    # a NetworkPolicy every time a service is added.
+    #
+    # The port list is still an enumeration and it will go stale. That is
+    # accepted rather than solved, for two reasons: allowing all TCP egress to
+    # all namespaces would make the policy decorative, and the failure mode is
+    # covered -- a port missing from this list makes the target time out, which
+    # fires TargetDown within two minutes. The list lives in values.yaml so the
+    # fix is a one-line edit in an obvious place rather than a hunt through
+    # a NetworkPolicy template.
+    - to:
+        - namespaceSelector: {}
+      ports:
+{{- range .Values.prometheus.scrapePorts }}
+        - {port: {{ . }}, protocol: TCP}
+{{- end }}
+    # The Kubernetes API, for pod discovery. Without it Prometheus starts, serves
+    # its UI, and lists no targets at all. 443 is the port that actually matters:
+    # in-cluster clients dial kubernetes.default.svc:443 and NetworkPolicy is
+    # evaluated pre-DNAT, so allowing only the node's 6443 blocks discovery.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress, Egress]
+  # No ingress rules at all: access is by port-forward only, which bypasses the
+  # policy. An empty ingress list is not an oversight, it is the statement that
+  # nothing inside the cluster should be talking to Grafana.
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {port: 9090, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - {port: 3100, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - {port: 3200, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agentNamespace }}
+      ports:
+        - {port: 3100, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tempo
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - {port: 3200, protocol: TCP}
+    # Traces arrive from the collector and from nowhere else. The mirror-image
+    # egress rule is in otel-collector.yaml: both are required, because a policy
+    # at either end drops the packet and the symptom -- traces that never arrive
+    # -- is identical whichever end is at fault.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {port: 4317, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}

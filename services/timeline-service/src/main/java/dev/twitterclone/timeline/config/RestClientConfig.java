@@ -28,21 +28,30 @@ public class RestClientConfig {
 
   @Bean
   @Qualifier("userServiceClient")
-  public RestClient userServiceClient(TimelineProperties properties) {
-    return client(properties.userServiceUrl());
+  public RestClient userServiceClient(RestClient.Builder builder, TimelineProperties properties) {
+    return client(builder, properties.userServiceUrl());
   }
 
   @Bean
   @Qualifier("tweetServiceClient")
-  public RestClient tweetServiceClient(TimelineProperties properties) {
-    return client(properties.tweetServiceUrl());
+  public RestClient tweetServiceClient(RestClient.Builder builder, TimelineProperties properties) {
+    return client(builder, properties.tweetServiceUrl());
   }
 
-  private static RestClient client(String baseUrl) {
+  /**
+   * Takes the auto-configured builder rather than calling {@code RestClient.builder()}. That
+   * builder is where the Micrometer observation interceptor lives, and it is the only thing that
+   * writes the {@code traceparent} header onto the outbound request. Building one by hand yields a
+   * working client that silently severs the trace at this hop.
+   *
+   * <p>The builder bean is prototype-scoped, so each client gets its own and the two calls below do
+   * not share mutable state.
+   */
+  private static RestClient client(RestClient.Builder builder, String baseUrl) {
     JdkClientHttpRequestFactory factory =
         new JdkClientHttpRequestFactory(
             HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build());
     factory.setReadTimeout(READ_TIMEOUT);
-    return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+    return builder.baseUrl(baseUrl).requestFactory(factory).build();
   }
 }

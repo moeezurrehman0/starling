@@ -1,0 +1,112 @@
+{{- include "observability.guard" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+data:
+  loki.yaml: |
+    # Single-binary Loki: every component in one process, filesystem storage.
+    # Correct for a disposable cluster, and the thing Tier P must not copy --
+    # there is no replication, no object store and no compactor behind this.
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      # Loki logs every request at info by default, which in a cluster that is
+      # scraping and querying continuously means Loki's own logs become the
+      # largest stream it ingests.
+      log_level: warn
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      # Pods write logs with the kubelet's timestamps, and a node whose clock has
+      # drifted produces entries Loki would reject as too old or too new. On a
+      # laptop that has been asleep this is routine, and a rejected entry is a log
+      # line that simply never appears.
+      reject_old_samples: false
+      allow_structured_metadata: true
+      volume_enabled: true
+    # Retention is not configured, deliberately. Storage is an emptyDir, so the
+    # pod's lifetime is the retention, and a compactor would spend CPU enforcing
+    # a policy that the next reschedule enforces absolutely.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  selector:
+    app.kubernetes.io/name: loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loki
+    spec:
+      securityContext: {{- include "observability.podSecurityContext" 10001 | nindent 8 }}
+      containers:
+        - name: loki
+          image: {{ .Values.loki.image }}
+          securityContext: {{- include "observability.containerSecurityContext" . | nindent 12 }}
+          args: [-config.file=/etc/loki/loki.yaml]
+          ports:
+            - name: http
+              containerPort: 3100
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            # Loki reports not-ready for roughly fifteen seconds after start while
+            # the ingester joins its own ring. A shorter delay makes every install
+            # look like a crash loop in `kubectl get pods`.
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          resources: {{- toYaml .Values.loki.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/loki}
+            - {name: data, mountPath: /loki}
+            # readOnlyRootFilesystem is on, and Loki writes its WAL under /tmp
+            # before anything reaches the chunks directory.
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: config, configMap: {name: loki}}
+        - {name: data, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}

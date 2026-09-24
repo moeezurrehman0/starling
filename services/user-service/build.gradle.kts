@@ -10,6 +10,10 @@ val libs =
         .named("libs")
 
 dependencies {
+    // One access log line per request, formatted identically everywhere. Without it the ECS
+    // logs hold only startup banners and there is nothing carrying a trace_id for Grafana to
+    // pivot from Loki into Tempo on.
+    implementation(project(":services:platform-observability"))
     // Shared DynamoDB item records and TableSchemas. Every service that touches a table
     // another service also touches must use these declarations rather than its own, or the
     // two can disagree about a stored attribute name and DynamoDB will not object.

@@ -10,6 +10,10 @@ val libs =
         .named("libs")
 
 dependencies {
+    // One access log line per request, formatted identically everywhere. Without it the ECS
+    // logs hold only startup banners and there is nothing carrying a trace_id for Grafana to
+    // pivot from Loki into Tempo on.
+    implementation(project(":services:platform-observability"))
     implementation(libs.findLibrary("boot-webmvc").get())
     implementation(libs.findLibrary("boot-restclient").get())
     implementation(libs.findLibrary("boot-security").get())

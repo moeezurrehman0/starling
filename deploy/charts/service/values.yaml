@@ -152,3 +152,9 @@ secretEnv:
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
+
+metrics:
+  # Whether Prometheus should scrape this workload. Off for anything that is not
+  # a Spring Boot service; see the note in templates/deployment.yaml.
+  enabled: true
+  path: /actuator/prometheus

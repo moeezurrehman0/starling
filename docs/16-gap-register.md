@@ -50,6 +50,12 @@ Tiers: **L** local (compose + kind), **S** sandbox (KodeKloud EKS), **P** produc
 | 19 | **Image supply chain** | identical to production | cosign keyless signing, SBOM, Trivy gate, ECR scan-on-push, immutable tags | **no gap — identical in all three tiers, and now verified rather than asserted**: `make image-verify` starts the real container and checks context refresh, a live TLS handshake to AWS, CDS mapping, absence of any shell or package manager (every filesystem entry scanned), and the `nonroot` UID |
 | 20 | **AIOps** | Bedrock unavailable | Bedrock agent with a read-only IRSA role | provider-pluggable; the CI risk commenter needs no AWS at all |
 | 21 | **Session lifetime** | **180 minutes**, everything destroyed afterwards | permanent | forces every operation to be a scripted, idempotent, time-budgeted target — kept as a virtue, not a workaround |
+| 22 | **Metrics backend** | self-hosted Prometheus on `emptyDir`, 2h retention | Amazon Managed Prometheus, 150-day retention, cross-account | `prometheus-rules.yaml` is the promoted artefact: recording rules and alert expressions transfer to AMP unchanged. The scrape config and storage do not, and are not pretended to. |
+| 23 | **Dashboards** | Grafana with anonymous admin and no auth | Amazon Managed Grafana behind IAM Identity Center, SAML groups | datasource and derived-field wiring is identical; only the auth story differs, and shipping one for a disposable cluster would be effort spent on the part that is thrown away |
+| 24 | **Trace backend** | self-hosted Tempo, `emptyDir`, no sampling | AWS X-Ray or AMP-managed Tempo, tail sampling at the collector | the OTel collector sits between the apps and the backend precisely so the app configuration does not change when the backend or the sampling policy does |
+| 25 | **Alert routing** | alerts evaluate; nothing routes them | Alertmanager to PagerDuty, with severity-based escalation | every alert carries `severity: page` or `severity: ticket` and a `runbook:` annotation pointing at a file that exists — the routing layer is the only missing piece |
+| 26 | **Infrastructure metrics** | none: no kube-state-metrics, no node-exporter, no cAdvisor scrape | full node, pod and control-plane metrics | recorded rather than hidden: several runbook steps reference container CPU throttling and are explicitly marked unexecutable in Tier L |
+| 27 | **Signal retention** | 2 hours; a rescheduled pod loses all history | 15 months of metrics, 30 days of logs and traces | `ErrorBudgetBurningSlow` has a 6h window and therefore **cannot fire locally**. The window is not shortened to make it demonstrable — the rules file is the Tier P artefact, and weakening it locally weakens it in production. |
 
 ---
 
@@ -400,6 +406,64 @@ so any context test fails on a machine with no AWS configuration and passes on a
 laptop that happens to have some. Deliberately invalid values are now set for every test JVM in
 `java-conventions`, so the suite behaves identically everywhere and any test that does reach AWS
 fails with an auth error rather than silently using someone's real account.
+
+**24. Spring Boot 4 moved tracing out of the actuator, and the old property still binds.** Every
+service set `management.otlp.tracing.endpoint` and exported no spans. Two independent causes,
+both silent. The autoconfiguration now lives in `spring-boot-micrometer-tracing-opentelemetry`,
+which was not on the classpath — having `micrometer-tracing-bridge-otel` and
+`opentelemetry-exporter-otlp` gives the libraries with nothing to wire them, so there is no
+`Tracer` bean, which means no exporter **and** no `traceId` in the MDC. One missing dependency
+broke traces and log correlation together. The property was also renamed to
+`management.opentelemetry.tracing.export.otlp.endpoint`; the old name still binds, which is
+worse than if it did not. *Control:* the technique that settles this class in one command —
+`unzip -p <jar> META-INF/spring-configuration-metadata.json` across every `spring-boot-*.jar` in
+`BOOT-INF/lib` — tells you definitively whether a property is bindable, and the Phase 10 gate is
+a non-zero `otelcol_receiver_accepted_spans` rather than a rendered config.
+
+**25. `RestClient.builder()` severs the trace and nothing fails.** Only the *auto-configured*
+`RestClient.Builder` carries the Micrometer observation interceptor that writes the
+`traceparent` header. The gateway built its own, so it opened a span for each inbound request,
+called upstreams without propagating, and produced traces that stopped at the edge — seven
+gateway spans and no others, for a request that touched four services. A trace that is merely
+incomplete looks exactly like a trace of a system that did no downstream work. *Control:* the
+gateway and timeline-service inject the builder, and the gate is a trace containing more than
+one `service.name`.
+
+**26. Calico evaluates NetworkPolicy before DNAT, so `6443` is the wrong port.** Prometheus and
+promtail both had API-server egress allowing only the node's `6443`. In-cluster clients dial
+`kubernetes.default.svc:443`, and the policy is evaluated against the service address, not the
+translated one. Discovery was blocked while a shell on the node could reach the API server
+fine, so every manual check said the network was healthy. *Control:* both policies allow 443
+and 6443, and `NoApplicationTargets` fires when discovery returns nothing at all — which
+`up == 0` cannot do, because there is no `up`.
+
+**27. A 401 on `/actuator/prometheus` is invisible except as an absence.** `tweet-service`
+permitted `/actuator/health/**` and `/actuator/info` but not `/actuator/prometheus`. The pod was
+healthy, the annotation was correct, the port was open, and the only symptom was that its
+metrics — and `tweet-indexer`'s, same image — did not exist. No alert could fire on them because
+no series existed to evaluate. Six of nine targets were down for the same class of reason
+(three on auth, one on a 404 from a pod that serves no metrics, the rest on an egress port list
+that had gone stale). *Control:* `TargetDown` is now understood as the compensating control for
+an enumerated egress policy, and is documented as such in its runbook.
+
+**28. Promtail's Kubernetes service discovery fails to zero targets with no error.** With
+`role: pod` the provider starts, logs `Using pod service account via in-cluster config`, and
+discovers 0/0 forever — at `debug`, against a reachable API server, with a token that returns
+200 from the same network namespace. The readiness message says *"Unable to find any logs to
+tail. Please verify permissions, volumes, scrape_config"*, which points at three things that
+were all correct. *Control:* replaced with path-based tailing, which is also the better design
+— Kubernetes SD asks a node-local agent to hold cluster-wide pod read in order to learn what
+the kubelet has already written into the filesystem it is mounting anyway. The ServiceAccount
+is kept but **deliberately unbound**, so reintroducing SD fails with a 403 rather than silently
+regaining that privilege.
+
+**29. A Helm upgrade changed a ConfigMap and no pod picked it up.** The promtail DaemonSet's pod
+template was byte-identical across the change, so Kubernetes had nothing to roll. `helm upgrade`
+reported success and all three pods kept running the previous config. This is the same class as
+row 22 — a deploy that reports green and changes nothing — in a different layer. *Control:* the
+config body is a named template and the pod template carries a `checksum/config` annotation over
+`include` of it. Checksumming `.Values` instead, as is common, would have missed this exact
+change, because the change was in the template body.
 
 ---
 

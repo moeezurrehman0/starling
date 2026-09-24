@@ -1,0 +1,106 @@
+{{- include "observability.guard" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  namespace: {{ .Values.namespace }}
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+      log_level: warn
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            # gRPC only, and only from the collector. The services speak OTLP
+            # over HTTP because that is what Spring Boot's
+            # `management.otlp.tracing.endpoint` does without an extra
+            # dependency; the collector converts. Leaving an HTTP receiver open
+            # here as well would give every application a second, undocumented
+            # route to the backend that bypasses the pipeline -- and it would
+            # work, which is what makes it a problem.
+            grpc:
+              endpoint: 0.0.0.0:4317
+    ingester:
+      # Flush quickly. The default holds a trace block for minutes, which on a
+      # cluster where a whole demo lasts ten minutes means the trace you just
+      # produced is not searchable while you are looking for it.
+      max_block_duration: 30s
+    compactor:
+      compaction:
+        block_retention: 1h
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+    # Generating span metrics from traces is deliberately off. It is the most
+    # attractive feature here and the wrong one to enable: RED metrics derived
+    # from sampled spans disagree with the same metrics measured directly by
+    # Micrometer, and two sources of truth for request rate is worse than one.
+    overrides:
+      metrics_generator_processors: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  selector:
+    app.kubernetes.io/name: tempo
+  ports:
+    - name: http
+      port: 3200
+      targetPort: 3200
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: tempo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+    spec:
+      securityContext: {{- include "observability.podSecurityContext" 10001 | nindent 8 }}
+      containers:
+        - name: tempo
+          image: {{ .Values.tempo.image }}
+          securityContext: {{- include "observability.containerSecurityContext" . | nindent 12 }}
+          args: [-config.file=/etc/tempo/tempo.yaml]
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: otlp-grpc
+              containerPort: 4317
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources: {{- toYaml .Values.tempo.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/tempo}
+            - {name: data, mountPath: /var/tempo}
+      volumes:
+        - {name: config, configMap: {name: tempo}}
+        - {name: data, emptyDir: {}}

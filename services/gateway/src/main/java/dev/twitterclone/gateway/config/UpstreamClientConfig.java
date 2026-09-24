@@ -17,6 +17,12 @@ import org.springframework.web.client.RestClient;
  * threads are the shared resource, so one degraded upstream becomes a site-wide outage rather than
  * a feature outage.
  *
+ * <p>The builder is injected rather than created with {@code RestClient.builder()}. Only the
+ * auto-configured builder carries the Micrometer observation interceptor, and without it the
+ * gateway opens a span for the inbound request, calls an upstream without propagating the
+ * traceparent header, and produces a trace that stops at the edge. Nothing fails; the trace is
+ * simply and quietly wrong.
+ *
  * <p>Redirects are not followed. A 302 from an upstream is meant for the browser, and resolving it
  * here would hide the redirect from the client while making the gateway fetch a URL it never
  * validated.
@@ -26,7 +32,7 @@ import org.springframework.web.client.RestClient;
 public class UpstreamClientConfig {
 
   @Bean
-  public RestClient upstreamClient(GatewayProperties properties) {
+  public RestClient upstreamClient(RestClient.Builder builder, GatewayProperties properties) {
     Duration timeout = properties.upstreamTimeout();
     JdkClientHttpRequestFactory factory =
         new JdkClientHttpRequestFactory(
@@ -35,6 +41,6 @@ public class UpstreamClientConfig {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());
     factory.setReadTimeout(timeout);
-    return RestClient.builder().requestFactory(factory).build();
+    return builder.requestFactory(factory).build();
   }
 }

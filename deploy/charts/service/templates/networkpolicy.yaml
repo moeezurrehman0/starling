@@ -62,6 +62,23 @@ spec:
             matchLabels:
               app.kubernetes.io/name: {{ . }}
     {{- end }}
+    # Traces, to the collector in the observability namespace. Without this rule
+    # the exporter's HTTP POST is dropped, and OpenTelemetry's exporter is
+    # deliberately non-fatal -- it logs at warn and the request it was tracing
+    # succeeds. The result is a service that looks instrumented, is configured
+    # correctly, and produces no traces at all. Scraping has the mirror-image
+    # rule on the ingress side above; both are needed, because a policy at
+    # either end drops the packet and the symptom is the same from both.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - port: 4318
+          protocol: TCP
     {{- if .Values.networkPolicy.allowExternalEgress }}
     # Everything outside the cluster: DynamoDB, S3, ECR.
     #

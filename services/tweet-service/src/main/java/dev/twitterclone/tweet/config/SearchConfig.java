@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 package dev.twitterclone.tweet.config;
 
+import dev.twitterclone.contracts.StreamCheckpointItem;
 import dev.twitterclone.platform.aws.streams.StreamHealthIndicator;
+import dev.twitterclone.platform.aws.streams.StreamMetrics;
 import dev.twitterclone.tweet.search.SearchProperties;
 import dev.twitterclone.tweet.search.TweetIndexer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -37,5 +39,21 @@ public class SearchConfig {
   public StreamHealthIndicator streamHealthIndicator(
       TweetIndexer indexer, SearchProperties properties) {
     return new StreamHealthIndicator(indexer.streamSource(), properties.enabled());
+  }
+
+  /**
+   * The same stream state as a metric.
+   *
+   * <p>Registered on the request-serving Deployment too, where it will read 0 forever because that
+   * process never resolves a stream it does not use. The tag set is what makes that harmless: the
+   * alert selects on the {@code tweet-indexer} application, and the series from the other
+   * Deployment is a visible, explainable zero rather than a gap that looks like a scrape failure.
+   *
+   * @param indexer the indexer whose stream is reported
+   * @return the binder
+   */
+  @Bean
+  public StreamMetrics streamMetrics(TweetIndexer indexer) {
+    return new StreamMetrics(indexer.streamSource(), StreamCheckpointItem.GROUP_SEARCH);
   }
 }

@@ -15,6 +15,8 @@ import dev.twitterclone.fanout.persistence.TimelineWriter;
 import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.StreamArns;
 import dev.twitterclone.platform.aws.testing.LocalStack;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,6 +54,8 @@ class StreamConsumerIntegrationTest {
   private DynamoDbTable<UserItem> users;
   private DynamoDbTable<FollowItem> follows;
   private DynamoDbTable<TimelineEntryItem> timelines;
+  private final MeterRegistry meters = new SimpleMeterRegistry();
+
   private StreamConsumer consumer;
 
   @BeforeAll
@@ -111,7 +115,8 @@ class StreamConsumerIntegrationTest {
             fanout,
             fanoutProperties,
             new StreamArns(client),
-            properties);
+            properties,
+            new FanoutMetrics(meters));
   }
 
   private void user(String id, boolean celebrity) {

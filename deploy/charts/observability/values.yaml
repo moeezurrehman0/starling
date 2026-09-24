@@ -1,0 +1,83 @@
+# Not installable in Tier P, for the same reason as dev-infra: every component here is a
+# single replica writing to an emptyDir. A pod reschedule discards the metric history, the
+# logs and the traces at once -- which is survivable on a cluster you can recreate, and is
+# the definition of losing your evidence anywhere else.
+#
+# Tier P uses Amazon Managed Prometheus, Amazon Managed Grafana and AWS X-Ray, wired by the
+# `observability` Terraform module. The deliberate consequence is that this chart is not the
+# production path and is not pretending to be; see docs/05-observability.md.
+tier: dev
+
+# The namespace holding the stack. Referenced by name in every application NetworkPolicy's
+# scrape rule, so changing it here without changing deploy/charts/service silently stops all
+# scraping -- the metrics do not error, they simply stop existing.
+namespace: observability
+
+# Log collection lives in its own namespace at a different privilege level. See promtail.yaml.
+agentNamespace: observability-agents
+
+# The namespace being watched. Prometheus discovers pods cluster-wide but only keeps the ones
+# carrying the scrape annotation, so this is a label for dashboards rather than a filter.
+appNamespace: twitter-clone
+
+prometheus:
+  # Every port Prometheus is permitted to scrape, enforced by NetworkPolicy.
+  # Must cover every prometheus.io/port annotation in the cluster: 3000 is the
+  # web BFF, 8080-8084 the Spring services, 8888 the OTel collector's own
+  # telemetry, 9090 Prometheus scraping itself.
+  scrapePorts: [3000, 8080, 8081, 8082, 8083, 8084, 8888, 9090]
+  image: prom/prometheus:v3.1.0
+  # 2h is not a typo and not a mistake. Storage is an emptyDir, so retention beyond the
+  # lifetime of the pod is an illusion; setting 15d would produce a stack that reports a
+  # fortnight of retention and loses everything on the first eviction.
+  retention: 2h
+  scrapeInterval: 15s
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 512Mi}
+
+grafana:
+  image: grafana/grafana:11.5.1
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 192Mi}
+
+loki:
+  image: grafana/loki:3.3.2
+  resources:
+    requests: {cpu: 100m, memory: 384Mi}
+    limits: {memory: 384Mi}
+
+promtail:
+  image: grafana/promtail:3.3.2
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 192Mi}
+
+collector:
+  # Core, not contrib. The contrib distribution carries every receiver and
+  # exporter that exists and is several times the size; nothing in this pipeline
+  # needs a component outside core, and pulling 250 MB of unused connectors onto
+  # three kind nodes is a cost with no matching benefit.
+  image: otel/opentelemetry-collector:0.117.0
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 192Mi}
+
+tempo:
+  image: grafana/tempo:2.7.0
+  resources:
+    requests: {cpu: 100m, memory: 384Mi}
+    limits: {memory: 384Mi}
+
+# The SLOs the alert rules are written against. They live here rather than being hard-coded
+# in the rules so that the number in the alert and the number in the documentation cannot
+# drift apart: docs/05-observability.md quotes these, and rules.yaml templates them.
+slo:
+  # Availability of the read path, as a ratio. 99.5% over 30 days is 3h36m of error budget --
+  # chosen because it is achievable with single-replica dependencies and still tight enough
+  # that a burn-rate alert means something.
+  availability: 0.995
+  # The fan-out promise: a tweet from an ordinary author reaches a follower's timeline within
+  # this many seconds, measured at p95 end to end from the stream's own record timestamp.
+  fanoutLagSeconds: 30

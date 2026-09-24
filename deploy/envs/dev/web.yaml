@@ -13,6 +13,11 @@ probes:
   livenessPath: /api/health
   readinessPath: /api/health
 
+metrics:
+  # Next.js exposes no Prometheus endpoint. Scraping it yields a 404 target and
+  # a TargetDown alert that can never be resolved.
+  enabled: false
+
 jvm:
   # No JVM. The chart still renders JAVA_TOOL_OPTIONS; Node ignores it.
   maxRamPercentage: 70.0

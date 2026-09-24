@@ -91,6 +91,20 @@ kubectl label ns "$NS" --overwrite \
 # A namespaceSelector matching a namespace that does not exist is not an error --
 # it just never matches, so creating it now keeps the policies meaningful later.
 kubectl get ns observability >/dev/null 2>&1 || kubectl create ns observability
+kubectl label ns observability --overwrite \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted >/dev/null
+
+# Log collection, one privilege level up and one namespace across. Promtail has
+# to mount /var/log/pods from the node, which `baseline` already forbids; the
+# alternative to this namespace is relaxing the profile for Grafana too, and
+# Grafana is the most exposed process in the stack. See promtail.yaml.
+kubectl get ns observability-agents >/dev/null 2>&1 || kubectl create ns observability-agents
+kubectl label ns observability-agents --overwrite \
+  pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/audit=privileged \
+  pod-security.kubernetes.io/warn=privileged >/dev/null
 
 # The Secret the charts reference by name. Nothing else creates it, and a missing
 # Secret named in `envFrom` does not fail the Deployment -- the pod is scheduled,
@@ -111,6 +125,18 @@ kubectl create secret generic twitter-clone-secrets -n "$NS" \
 
 log "installing dev-infra"
 helm upgrade --install dev-infra "$ROOT/deploy/charts/dev-infra" -n "$NS" --wait --timeout 5m
+
+# Observability before the applications, not after. The applications export
+# traces from their first request; a collector that does not exist yet means the
+# exporter logs a connection refused at warn and carries on, so the first minutes
+# of a fresh cluster are exactly the ones with no trace data -- which is when
+# anyone debugging a fresh cluster is looking.
+#
+# Not --wait: Prometheus and Grafana take longer to become ready than the whole
+# application stack, and nothing in the application path depends on them being
+# up. Blocking here would add a minute to every deploy in exchange for nothing.
+log "installing observability"
+helm upgrade --install observability "$ROOT/deploy/charts/observability" -n observability
 
 # LocalStack starts empty: no tables, no bucket. The services do not create them,
 # by design -- a service that creates its own tables at boot will happily create

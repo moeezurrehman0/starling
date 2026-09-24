@@ -24,9 +24,15 @@ spec:
         # at pod start, so running pods keep the old values indefinitely and the
         # change appears to have been applied when it has not.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        # Not every workload this chart deploys is a Spring Boot service. The web
+        # frontend is Next.js and has no actuator at all, so annotating it for
+        # scraping produces a permanent 404 target -- an alert that fires forever
+        # about a service that was never going to have metrics.
+        {{- if .Values.metrics.enabled }}
         prometheus.io/scrape: "true"
-        prometheus.io/path: /actuator/prometheus
+        prometheus.io/path: {{ .Values.metrics.path }}
         prometheus.io/port: {{ .Values.port | quote }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

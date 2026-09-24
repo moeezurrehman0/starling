@@ -14,6 +14,8 @@ import dev.twitterclone.fanout.config.FanoutProperties;
 import dev.twitterclone.fanout.persistence.CheckpointRepository;
 import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.StreamArns;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -64,9 +66,19 @@ class StreamConsumerTest {
 
   private static final DynamoDbProperties TABLES = new DynamoDbProperties(null, "");
 
+  // A real registry rather than a mock. The meters are cheap, and a mock would accept every
+  // interaction including the ones that would throw against Micrometer's actual contract.
+  private final MeterRegistry meters = new SimpleMeterRegistry();
+
   private StreamConsumer consumer(FanoutProperties properties) {
     return new StreamConsumer(
-        streams, checkpoints, fanout, properties, new StreamArns(dynamo), TABLES);
+        streams,
+        checkpoints,
+        fanout,
+        properties,
+        new StreamArns(dynamo),
+        TABLES,
+        new FanoutMetrics(meters));
   }
 
   private StreamConsumer consumer() {

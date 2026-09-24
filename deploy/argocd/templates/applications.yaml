@@ -35,6 +35,48 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 {{- end }}
+{{- if .Values.observability }}
+---
+# The observability stack. Sync wave -2, ahead of even dev-infra: the collector
+# has to exist before the first application pod makes its first export, or that
+# export fails and the span for the very first request -- the one most likely to
+# be inspected during a demo -- is lost.
+#
+# Sync is never automated for this Application regardless of .Values.autoSync.
+# selfHeal on a monitoring stack means that silencing an alert or widening a
+# scrape during an incident is reverted underneath you, minutes later, with no
+# notification. Drift here is a smaller problem than losing manual control of
+# the tool you are using to diagnose the outage.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-{{ .Values.env }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: deploy/charts/observability
+    helm:
+      parameters:
+        - name: tier
+          value: {{ .Values.env | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    # The chart renders into two namespaces of its own. This one is only the
+    # destination ArgoCD reconciles against; every resource carries an explicit
+    # namespace, and CreateNamespace below applies to both.
+    namespace: observability
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
 {{- range .Values.services }}
 ---
 apiVersion: argoproj.io/v1alpha1

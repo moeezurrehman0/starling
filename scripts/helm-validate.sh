@@ -28,7 +28,7 @@ command -v helm >/dev/null || { echo "helm is required"; exit 1; }
 command -v kubeconform >/dev/null || { echo "kubeconform is required"; exit 1; }
 
 log "helm lint"
-for chart in service dev-infra; do
+for chart in service dev-infra observability; do
   if helm lint "$ROOT/deploy/charts/$chart" \
        --set name=lint --set image.repository=r --set image.tag=sha-1 >/tmp/hl.txt 2>&1; then
     ok "charts/$chart"
@@ -262,6 +262,64 @@ for f in "$ROOT"/deploy/envs/dev/*.yaml; do
     bad "$svc — configured with http://localstack: but localstack is not in networkPolicy.allowTo"
   fi
 done
+
+log "observability: rendered stack"
+# This is the only chart that renders into two namespaces at two different privilege
+# levels, and the split is load-bearing: promtail needs a hostPath and nothing else may
+# have one. A single mistaken namespace value puts Grafana in the privileged namespace
+# and nothing anywhere complains.
+if helm template observability "$ROOT/deploy/charts/observability" >/tmp/render-obs.yaml 2>/tmp/he.txt \
+   && kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" /tmp/render-obs.yaml >/dev/null 2>&1; then
+  ok "charts/observability — template + schema"
+else
+  bad "charts/observability — template or schema"
+  sed 's/^/        /' /tmp/he.txt
+fi
+
+python3 "$ROOT/scripts/lib/validate-observability.py" /tmp/render-obs.yaml "$ROOT" >/tmp/obs.txt 2>&1 || true
+if [ -s /tmp/obs.txt ]; then
+  bad "observability stack has structural problems"
+  sed 's/^/        /' /tmp/obs.txt
+else
+  ok "observability — default-deny, API ports, agent namespace, config checksum, dashboards, runbooks"
+fi
+
+log "observability: every Spring app can reach the collector"
+# An app with no egress to the collector exports no spans, logs nothing about it and
+# stays perfectly healthy. The trace is simply absent, which is indistinguishable from a
+# service that took no part in the request.
+for env in "${ENVS[@]}"; do
+  for svc in gateway user-service tweet-service timeline-service fanout-worker; do
+    out="/tmp/render-$env-$svc.yaml"
+    [ -f "$out" ] || continue
+    grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' "$out" || continue
+    if grep -qE 'otel-collector|4318' "$out"; then
+      ok "$env/$svc — exports OTLP and has a path to the collector"
+    else
+      bad "$env/$svc — sets OTEL_EXPORTER_OTLP_ENDPOINT but no policy admits the collector"
+    fi
+  done
+done
+
+log "observability: alert rules are valid PromQL"
+# promtool is the only thing that rejects a typo'd expression. To Prometheus, an alert
+# whose expression matches nothing is not an error -- it is an alert that never fires.
+if command -v docker >/dev/null 2>&1; then
+  python3 "$ROOT/scripts/lib/extract-rules.py" /tmp/render-obs.yaml >/tmp/rules.yaml 2>/dev/null || true
+  if [ -s /tmp/rules.yaml ]; then
+    if docker run --rm -v /tmp:/w --entrypoint promtool prom/prometheus:v3.1.0 \
+         check rules /w/rules.yaml >/tmp/pt.txt 2>&1; then
+      ok "promtool accepts every recording rule and alert"
+    else
+      bad "promtool rejected the rules"
+      sed 's/^/        /' /tmp/pt.txt
+    fi
+  else
+    bad "no alert rules were found in the rendered chart"
+  fi
+else
+  printf '  \033[1;33mSKIP\033[0m  promtool (docker unavailable)\n'
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -28,6 +28,9 @@ include(
     // deliberately Spring-free: this module exists precisely to hold the wiring that rule
     // keeps out of there.
     "services:platform-aws",
+    // Shared observability wiring for the HTTP services. Separate from platform-aws so that a
+    // service can have an access log without acquiring an AWS SDK.
+    "services:platform-observability",
     "services:gateway",
     "services:user-service",
     "services:tweet-service",

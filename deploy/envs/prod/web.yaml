@@ -36,3 +36,8 @@ env:
   # SESSION_COOKIE_SECURE is deliberately absent. The application defaults it to
   # true, so the only way to serve an insecure session cookie is to write the
   # override down — which dev does, and which a reviewer can see in a diff.
+
+metrics:
+  # Next.js exposes no Prometheus endpoint. Scraping it yields a 404 target and
+  # a TargetDown alert that can never be resolved.
+  enabled: false

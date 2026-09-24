@@ -1,0 +1,7 @@
+apiVersion: v2
+name: observability
+description: >
+  Prometheus, Grafana, Loki and Tempo for Tier L and Tier S. Single replicas,
+  no persistence, deliberately not a production monitoring stack.
+type: application
+version: 0.1.0

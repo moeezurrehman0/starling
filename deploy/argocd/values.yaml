@@ -22,6 +22,12 @@ autoSync: true
 # for Tier L and Tier S; false for Tier P, where these are managed AWS services.
 devInfra: true
 
+# Install Prometheus, Loki, Tempo, the OTel collector and Grafana. True in Tier L
+# and Tier S. False in Tier P, where the backends are AMP, AMG and X-Ray -- but
+# prometheus-rules.yaml is promoted there unchanged, so the alerts survive the
+# switch even though this chart does not.
+observability: true
+
 services:
   - gateway
   - user-service

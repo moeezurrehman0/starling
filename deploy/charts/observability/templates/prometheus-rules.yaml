@@ -1,0 +1,190 @@
+{{- include "observability.guard" . }}
+{{- $burnFast := 14.4 }}
+{{- $burnSlow := 6.0 }}
+{{- $budget := subf 1.0 .Values.slo.availability }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: {{ .Values.namespace }}
+data:
+  slo.yaml: |
+    groups:
+      # ----------------------------------------------------------------------
+      # Recording rules.
+      #
+      # These exist so that the alerts below and the Grafana panels read the
+      # same number. An SLO defined twice -- once in an alert expression and
+      # once in a dashboard query -- is an SLO that will eventually disagree
+      # with itself during an incident, and the disagreement is always
+      # discovered at the worst moment.
+      # ----------------------------------------------------------------------
+      - name: sli
+        interval: 30s
+        rules:
+          - record: sli:requests:rate5m
+            expr: sum by (app) (rate(http_server_requests_seconds_count[5m]))
+          - record: sli:errors:rate5m
+            # 5xx only. A 4xx is the client being wrong, and counting it against
+            # the service's error budget means a credential-stuffing attempt can
+            # page the on-call for someone else's bad requests.
+            expr: sum by (app) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          - record: sli:errors:ratio_rate5m
+            # The `or on() vector(0)` is load-bearing: with no traffic the
+            # division is 0/0, which is NaN, and NaN compares false against
+            # every threshold. Without it a service that has stopped receiving
+            # requests entirely looks exactly like a service with no errors.
+            expr: |
+              (sli:errors:rate5m / sli:requests:rate5m) or (sli:requests:rate5m * 0)
+          {{- range $w := list "30m" "1h" "6h" }}
+          - record: sli:errors:ratio_rate{{ $w }}
+            expr: |
+              (
+                sum by (app) (rate(http_server_requests_seconds_count{status=~"5.."}[{{ $w }}]))
+                /
+                sum by (app) (rate(http_server_requests_seconds_count[{{ $w }}]))
+              ) or (sum by (app) (rate(http_server_requests_seconds_count[{{ $w }}])) * 0)
+          {{- end }}
+
+      # ----------------------------------------------------------------------
+      # Error budget burn.
+      #
+      # Multi-window, multi-burn-rate, from the SRE workbook. The pattern exists
+      # because the obvious alert -- "error ratio above X for five minutes" --
+      # is wrong in both directions: it pages for a brief spike that consumes a
+      # trivial slice of the budget, and it stays silent through a slow bleed
+      # that consumes all of it by Friday.
+      #
+      # The short window in each pair is the reset condition. Without it the
+      # long window keeps the alert firing for an hour after the incident has
+      # been fixed, which trains the on-call to ignore it.
+      # ----------------------------------------------------------------------
+      - name: error-budget
+        rules:
+          - alert: ErrorBudgetBurningFast
+            # {{ printf "%.1f" $burnFast }}x burn exhausts a 30-day budget in about two days.
+            expr: |
+              sli:errors:ratio_rate1h > ({{ $burnFast }} * {{ $budget }})
+              and
+              sli:errors:ratio_rate5m > ({{ $burnFast }} * {{ $budget }})
+            for: 2m
+            labels:
+              severity: page
+              slo: availability
+            annotations:
+              summary: '{{ "{{ $labels.app }}" }} is burning error budget {{ $burnFast }}x faster than allowed'
+              description: >-
+                Over the last hour {{ "{{ $labels.app }}" }} returned 5xx for
+                {{ "{{ $value | humanizePercentage }}" }} of requests, against an SLO of
+                {{ .Values.slo.availability | float64 | mulf 100 }}% availability.
+              runbook: docs/runbooks/error-budget-burn.md
+          - alert: ErrorBudgetBurningSlow
+            expr: |
+              sli:errors:ratio_rate6h > ({{ $burnSlow }} * {{ $budget }})
+              and
+              sli:errors:ratio_rate30m > ({{ $burnSlow }} * {{ $budget }})
+            for: 15m
+            labels:
+              severity: ticket
+              slo: availability
+            annotations:
+              summary: '{{ "{{ $labels.app }}" }} is on course to exhaust its error budget'
+              # Tier L cannot evaluate this. Prometheus retains two hours, so the
+              # six-hour window is never full and the rule cannot fire. It is kept
+              # because the rules file is the artefact promoted to Tier P, where
+              # Amazon Managed Prometheus retains 150 days -- deleting it here would
+              # mean the slow-burn alert only ever exists in production, untested.
+              # See gap register: local retention is the constraint, not the rule.
+              runbook: docs/runbooks/error-budget-burn.md
+
+      # ----------------------------------------------------------------------
+      # Fan-out. The asynchronous path, which has no HTTP traffic and therefore
+      # none of the alerts above.
+      # ----------------------------------------------------------------------
+      - name: fanout
+        rules:
+          - alert: FanoutStreamUnresolved
+            # Gap register row 18, as an alert. The worker logged one WARN, passed
+            # both probes and consumed nothing; readiness now catches that on a
+            # single pod, and this catches it across the fleet and over time.
+            expr: max_over_time(stream_resolved{group="fanout"}[5m]) == 0
+            for: 5m
+            labels:
+              severity: page
+            annotations:
+              summary: 'fan-out has not found the stream for table {{ "{{ $labels.table }}" }}'
+              description: >-
+                The consumer is retrying and no tweet is reaching any follower timeline.
+                Writes still succeed, so nothing else will report an error.
+              runbook: docs/runbooks/fanout-stream-unresolved.md
+          - alert: FanoutLagHigh
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (rate(fanout_lag_seconds_bucket[5m]))
+              ) > {{ .Values.slo.fanoutLagSeconds }}
+            for: 10m
+            labels:
+              severity: page
+              slo: freshness
+            annotations:
+              summary: 'timelines are more than {{ .Values.slo.fanoutLagSeconds }}s behind at p95'
+              description: >-
+                Measured from the stream record's own timestamp, so this covers the
+                write, the stream, the backlog ahead of the record and the worker.
+              runbook: docs/runbooks/fanout-lag.md
+          - alert: FanoutTruncating
+            # Not a performance problem. A truncated fan-out is followers who will
+            # never receive the tweet -- a permanent, silent correctness failure that
+            # no retry repairs, because the record has already been checkpointed.
+            expr: increase(fanout_records_total{outcome="truncated"}[15m]) > 0
+            for: 0m
+            labels:
+              severity: page
+            annotations:
+              summary: 'fan-out truncated at the safety ceiling; followers are missing tweets'
+              runbook: docs/runbooks/fanout-truncation.md
+          - alert: FanoutRecordsMalformed
+            expr: increase(fanout_records_malformed_total[30m]) > 0
+            for: 0m
+            labels:
+              severity: ticket
+            annotations:
+              summary: 'stream records are arriving without a tweet or author id'
+              description: >-
+                Almost always a contract change: an attribute renamed on one side of
+                the stream and not the other. The records are dropped, not retried.
+              runbook: docs/runbooks/fanout-truncation.md
+
+      # ----------------------------------------------------------------------
+      # The monitoring stack watching itself.
+      # ----------------------------------------------------------------------
+      - name: meta
+        rules:
+          - alert: TargetDown
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: page
+            annotations:
+              summary: 'Prometheus cannot scrape {{ "{{ $labels.app }}" }}'
+              description: >-
+                Either the pod is gone or its NetworkPolicy no longer admits the
+                observability namespace. The second failure mode looks identical
+                to the first from here.
+              runbook: docs/runbooks/target-down.md
+          - alert: NoApplicationTargets
+            # The alert for the failure the other alerts cannot see. If discovery
+            # breaks -- an annotation renamed, RBAC narrowed, the namespace label
+            # changed -- every series disappears, `up == 0` matches nothing because
+            # there is no `up`, and the dashboards go quiet rather than red.
+            expr: absent(up{job="kubernetes-pods"}) == 1
+            for: 10m
+            labels:
+              severity: page
+            annotations:
+              summary: 'no application pods are being scraped at all'
+              description: >-
+                Not "a target is down": there are no targets. Every other alert in
+                this file is unevaluable while this is firing.
+              runbook: docs/runbooks/target-down.md

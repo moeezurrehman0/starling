@@ -42,6 +42,7 @@ public class StreamConsumer {
   private final StreamReader reader;
   private final FanoutService fanout;
   private final StreamSource streamSource;
+  private final FanoutMetrics metrics;
 
   public StreamConsumer(
       DynamoDbStreamsClient streams,
@@ -49,7 +50,8 @@ public class StreamConsumer {
       FanoutService fanout,
       FanoutProperties properties,
       StreamArns arns,
-      DynamoDbProperties dynamo) {
+      DynamoDbProperties dynamo,
+      FanoutMetrics metrics) {
     // Blank resolves to whatever stream the tweets table currently has. LocalStack mints a
     // new ARN every time the stack is recreated, so a pinned value would be stale after the
     // first teardown.
@@ -66,6 +68,7 @@ public class StreamConsumer {
             streamSource,
             properties.batchSize());
     this.fanout = fanout;
+    this.metrics = metrics;
   }
 
   /**
@@ -104,9 +107,14 @@ public class StreamConsumer {
     String authorId = StreamRecords.string(image, AUTHOR_ID);
     if (tweetId == null || authorId == null) {
       LOG.warn("stream record has no tweet or author id, skipping");
+      metrics.recordMalformed();
       return;
     }
-    FanoutService.Result result = fanout.fanOut(tweetId, authorId);
+    FanoutService.Result result = metrics.record(() -> fanout.fanOut(tweetId, authorId));
+    // After the work, not before. Lag is meant to answer "how stale was the timeline entry when
+    // it appeared", so the clock has to stop when the entry exists, not when this worker first
+    // laid eyes on the record.
+    metrics.recordLag(record.dynamodb().approximateCreationDateTime());
     LOG.debug(
         "tweet {} -> {} ({} timelines)",
         result.tweetId(),

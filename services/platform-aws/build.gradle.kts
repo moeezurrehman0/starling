@@ -44,6 +44,10 @@ dependencies {
     // build failure, so the annotations have to be on the compile classpath even though this
     // module never serialises anything.
     compileOnly("com.fasterxml.jackson.core:jackson-annotations")
+    // Micrometer at compile time only, for the same reason as the actuator above: this module
+    // contributes a MeterBinder, but binding it is the application's decision. A service that
+    // never registers StreamMetrics never loads the class and never needs micrometer-core.
+    compileOnly(libs.findLibrary("micrometer-core").get())
     // The stream reader logs its iterator and poison-record decisions; those log lines are the
     // only evidence a stalled consumer leaves.
     implementation("org.slf4j:slf4j-api")
@@ -68,5 +72,6 @@ dependencies {
     // The health indicator is the only Spring-facing class here, and the only one whose test
     // needs the actuator types that main compiles against without shipping.
     testImplementation(libs.findLibrary("boot-actuator").get())
+    testImplementation(libs.findLibrary("micrometer-core").get())
     testRuntimeOnly(libs.findLibrary("junit-platform-launcher").get())
 }

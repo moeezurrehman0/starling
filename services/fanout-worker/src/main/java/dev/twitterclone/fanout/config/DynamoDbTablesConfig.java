@@ -10,6 +10,7 @@ import dev.twitterclone.platform.aws.DynamoDbConfig;
 import dev.twitterclone.platform.aws.DynamoDbProperties;
 import dev.twitterclone.platform.aws.streams.DynamoDbStreamsConfig;
 import dev.twitterclone.platform.aws.streams.StreamHealthIndicator;
+import dev.twitterclone.platform.aws.streams.StreamMetrics;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -61,5 +62,16 @@ public class DynamoDbTablesConfig {
   public StreamHealthIndicator streamHealthIndicator(
       StreamConsumer consumer, FanoutProperties properties) {
     return new StreamHealthIndicator(consumer.streamSource(), properties.enabled());
+  }
+
+  /**
+   * The same stream state as a metric, for the history the probe cannot keep.
+   *
+   * @param consumer the consumer whose stream is reported
+   * @return the binder
+   */
+  @Bean
+  public StreamMetrics streamMetrics(StreamConsumer consumer) {
+    return new StreamMetrics(consumer.streamSource(), StreamCheckpointItem.GROUP_FANOUT);
   }
 }

@@ -56,7 +56,12 @@ public class SecurityConfig {
                     .authenticated()
                     .requestMatchers(HttpMethod.POST, "/v1/tweets/*/likes")
                     .authenticated()
-                    .requestMatchers("/actuator/health/**", "/actuator/info")
+                    // /actuator/prometheus belongs here with health and info. Prometheus
+                    // scrapes unauthenticated, so omitting it does not break the build,
+                    // the deploy, or any probe -- it produces a 401 that only shows up as
+                    // a missing target, which is to say as an absence of alerting.
+                    .requestMatchers(
+                        "/actuator/health/**", "/actuator/info", "/actuator/prometheus")
                     .permitAll()
                     // Reads are open, but the handler still inspects the principal: a request
                     // that does carry a valid token gets likedByMe populated. permitAll means

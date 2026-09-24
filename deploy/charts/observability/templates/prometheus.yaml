@@ -1,0 +1,187 @@
+{{- include "observability.guard" . }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+---
+# Cluster-scoped and read-only. Pod discovery is a list/watch across namespaces, so this
+# cannot be a Role -- but it can be, and is, limited to the three object kinds the scrape
+# config actually relabels from. A ClusterRole with `*` here is the single most common way a
+# monitoring stack becomes the most privileged thing on the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: [nodes, services, endpoints, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      # Shorter than the scrape interval would silently drop samples; equal is the
+      # conventional pairing and makes a slow target visible as a failed scrape rather
+      # than as a gap nobody attributes to anything.
+      scrape_timeout: 10s
+      external_labels:
+        # Present so that a dashboard or an alert copied to Tier S is not ambiguous about
+        # which cluster it came from. Without it, two environments feeding one Grafana
+        # produce series that look like one flapping environment.
+        tier: L
+        cluster: kind-twitter-clone
+
+    rule_files:
+      - /etc/prometheus/rules/*.yaml
+
+    scrape_configs:
+      # Prometheus itself. Not vanity: if this target is missing, every `up == 0` alert is
+      # unevaluable and the absence of alerts is indistinguishable from health.
+      - job_name: prometheus
+        static_configs:
+          - targets: [localhost:9090]
+
+      # Application pods, discovered by annotation rather than by a hard-coded list.
+      #
+      # Annotation-driven discovery is chosen over ServiceMonitor CRDs because the CRDs
+      # belong to the Prometheus Operator, which this chart deliberately does not install:
+      # the operator is most of the value of kube-prometheus-stack and none of it is
+      # transferable to Tier P, where scraping is done by the AMP agent. What does transfer
+      # is the annotation contract, which the service chart already emits.
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Opt in, not opt out. A pod with no annotation is dropped, so adding a
+          # dependency to the cluster cannot accidentally add a scrape target that fails
+          # and turns the `up` alert into noise.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # Never scrape a pod that is not running. Terminating pods answer for a while and
+          # then stop, which shows up as a target that flaps on every deploy.
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: drop
+            regex: (Pending|Succeeded|Failed)
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # The port annotation replaces whatever port discovery guessed. Without this the
+          # first declared containerPort wins, which for these pods is correct today and
+          # would break the moment a sidecar is added.
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          # The workload name, stable across pod restarts. Every dashboard and every alert
+          # groups by this; grouping by `pod` instead produces a new series on every deploy
+          # and a rate() that resets to zero with it.
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+        metric_relabel_configs:
+          # Drop the per-percentile series Micrometer publishes alongside the histogram.
+          # They cannot be aggregated across pods -- averaging a p99 is meaningless -- and
+          # keeping them doubles the series count for a number no correct query can use.
+          - source_labels: [__name__, quantile]
+            action: drop
+            regex: .*_seconds;.+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate. Two Prometheus pods writing to two emptyDirs is not a
+  # highly available pair, it is two disagreeing histories, and whichever one the Service
+  # routes a query to decides what the graph shows.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+      annotations:
+        # Rolls the pod when the scrape config or the rules change. Prometheus reloads on
+        # SIGHUP, which nothing here sends, so without this a rule edit is applied to the
+        # ConfigMap and never to the process -- and `helm upgrade` reports success.
+        checksum/config: {{ printf "%s%s" (toYaml .Values.prometheus) (toYaml .Values.slo) | sha256sum }}
+    spec:
+      serviceAccountName: prometheus
+      # 65534 is `nobody`, the uid the upstream image already runs as.
+      securityContext: {{- include "observability.podSecurityContext" 65534 | nindent 8 }}
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image }}
+          securityContext: {{- include "observability.containerSecurityContext" . | nindent 12 }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.prometheus.retention }}
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            periodSeconds: 15
+          resources: {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus/prometheus.yml, subPath: prometheus.yml}
+            - {name: rules, mountPath: /etc/prometheus/rules}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - {name: config, configMap: {name: prometheus}}
+        - {name: rules, configMap: {name: prometheus-rules}}
+        - {name: data, emptyDir: {}}

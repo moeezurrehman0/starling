@@ -34,6 +34,11 @@ dependencies {
     libs.findBundle("testcontainers").get().get().forEach { "integrationTestImplementation"(it) }
     "integrationTestImplementation"(libs.findLibrary("boot-test").get())
     "integrationTestImplementation"(libs.findLibrary("assertj").get())
+    // Only the built-in `test` suite inherits the project's `implementation` configuration;
+    // a registered JvmTestSuite does not. An integration test that constructs a collaborator
+    // taking a MeterRegistry therefore fails to compile on a dependency main has had all
+    // along, which reads like a missing library rather than a source-set rule.
+    "integrationTestImplementation"(libs.findLibrary("micrometer-core").get())
 }
 
 // Reproducible, digest-stable archives — the same source must produce the same
