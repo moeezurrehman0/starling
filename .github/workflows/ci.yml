@@ -500,13 +500,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - if: matrix.language == 'java-kotlin'
+      # CodeQL requires GitHub Advanced Security on a PRIVATE repository. Without
+      # it, `codeql-action/init` does not skip -- it errors, and since `verdict`
+      # needs this job, CI would be permanently red for a reason that has nothing
+      # to do with the code. The same argument as the `cost` job, and the same
+      # resolution: skip, and say so loudly in the run summary, because an
+      # unconfigured gate that renders identically to a passing one is the exact
+      # failure this project catalogues. Public repositories get CodeQL free, so
+      # this branch is a private-repo concession and is labelled as one.
+      - id: ghas
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          if [ "${{ github.event.repository.private }}" != "true" ]; then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}" \
+               --jq '.security_and_analysis.advanced_security.status' 2>/dev/null |
+             grep -q enabled; then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "### :warning: SAST did not run"
+              echo
+              echo "CodeQL needs GitHub Advanced Security on a private repository,"
+              echo "and it is not enabled. **No static analysis was performed.**"
+              echo
+              echo "This is a **skip, not a pass.** Make the repository public"
+              echo "(CodeQL is free there) or enable Advanced Security."
+              echo
+              echo "Recorded as class S45 in \`docs/16-gap-register.md\`."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - if: matrix.language == 'java-kotlin' && steps.ghas.outputs.available == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 25
 
-      - uses: github/codeql-action/init@v3
+      - if: steps.ghas.outputs.available == 'true'
+        uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
           # security-and-quality over the default: this is a portfolio repository, and the
@@ -514,13 +551,14 @@ jobs:
           # that a reviewer notices and a default CodeQL run does not.
           queries: security-and-quality
 
-      - if: matrix.language == 'java-kotlin'
+      - if: matrix.language == 'java-kotlin' && steps.ghas.outputs.available == 'true'
         run: ./gradlew classes testClasses --no-build-cache
 
-      - if: matrix.language != 'java-kotlin'
+      - if: matrix.language != 'java-kotlin' && steps.ghas.outputs.available == 'true'
         uses: github/codeql-action/autobuild@v3
 
-      - uses: github/codeql-action/analyze@v3
+      - if: steps.ghas.outputs.available == 'true'
+        uses: github/codeql-action/analyze@v3
         with:
           category: /language:${{ matrix.language }}
 

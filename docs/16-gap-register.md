@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S44`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S45`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S44`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S45`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -661,6 +661,21 @@ detection mechanism was someone happening to look. *Control:* the `docs` CI job 
 five with `mmdc` and fails on a parse error. Negative-tested against a deliberately
 malformed node, which the gate caught. *Gap:* none — the renderer is the same engine GitHub
 uses, so a pass here is a pass there.
+
+**S45. A security gate that cannot run must not look like one that passed.** CodeQL is free
+on public repositories and requires GitHub Advanced Security on private ones. On a private
+repository without it, `codeql-action/init` does not skip politely — it errors. Because the
+`verdict` job needs `codeql`, that makes CI permanently red for a reason unrelated to the
+code, and the reflex fix is `continue-on-error`, which converts a hard failure into a green
+check over a repository where **no static analysis ran at all**. That is the worst available
+outcome: the SAST row of the pipeline table would be true on paper and empty in fact.
+*Control:* a preflight step asks the API whether Advanced Security is enabled, every
+analysis step is guarded on the answer, and when it is absent the job writes a
+`:warning: SAST did not run` block to the run summary stating explicitly that this is *a
+skip, not a pass*. Same pattern as the `cost` job and a missing Infracost key (row 18).
+*Gap:* on a private repository without Advanced Security there is genuinely no SAST — the
+control makes that visible, it does not fix it. Making the repository public removes the
+gap entirely.
 
 ---
 
