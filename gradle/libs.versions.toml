@@ -15,7 +15,7 @@ jacoco = "0.8.13"
 archunit = "1.4.1"
 # AWS SDK v2. The v1 SDK (group com.amazonaws) reached end of support in Dec 2025
 # and must not be introduced — see ADR-0012 on why the KCL streams adapter is rejected.
-awsSdk = "2.46.7"
+awsSdk = "2.55.1"
 
 [libraries]
 # --- Platforms -------------------------------------------------------------
