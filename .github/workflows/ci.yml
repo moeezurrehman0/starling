@@ -146,6 +146,15 @@ jobs:
       - name: Probe self-test
         run: ./scripts/probe-selftest.sh
 
+      # Same argument, higher stakes. The three sandbox lifecycle scripts run once
+      # per session, and `sandbox-down` carries the project's done criterion --
+      # "leaves nothing". That claim is only as good as the verification sweep, and
+      # a sweep has two opposite ways to be wrong: reporting clean because a query
+      # was denied, and reporting dirty because AWS printed the literal string
+      # "None" for an empty result. Both are asserted against stub binaries here.
+      - name: Sandbox lifecycle self-test
+        run: ./scripts/sandbox-selftest.sh
+
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck

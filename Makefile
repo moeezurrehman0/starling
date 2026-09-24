@@ -181,15 +181,23 @@ probe-selftest: ## Test the probe against a stubbed AWS CLI — no credentials n
 
 .PHONY: sandbox-up
 sandbox-up: ## [APPLIES TO AWS] Provision the 180-minute sandbox end to end
-	@echo "Not yet implemented — Phase 8." && exit 1
+	@scripts/sandbox-up.sh $(ARGS)
+
+.PHONY: sandbox-plan
+sandbox-plan: ## Dry-run the provisioning path — prints every command, touches nothing
+	@scripts/sandbox-up.sh --dry-run
 
 .PHONY: sandbox-status
-sandbox-status: ## Elapsed session time and cluster health
-	@echo "Not yet implemented — Phase 8." && exit 1
+sandbox-status: ## Elapsed session time against the 180-minute budget, plus cluster health
+	@scripts/sandbox-status.sh
 
 .PHONY: sandbox-down
-sandbox-down: ## [APPLIES TO AWS] Destroy everything in the sandbox
-	@echo "Not yet implemented — Phase 8." && exit 1
+sandbox-down: ## [APPLIES TO AWS] Destroy everything, then ask AWS directly what survived
+	@scripts/sandbox-down.sh $(ARGS)
+
+.PHONY: sandbox-selftest
+sandbox-selftest: ## Test the whole lifecycle against stub AWS/terraform/kubectl — no account needed
+	@scripts/sandbox-selftest.sh
 
 # ---------------------------------------------------------------------------
 # Docs

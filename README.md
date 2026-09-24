@@ -44,6 +44,7 @@ this repo that proves each production path.** It is the most useful document her
 | [`docs/05-observability.md`](docs/05-observability.md) | Metrics, logs, traces, SLOs, alerts and the runbooks they link to |
 | [`docs/06-load-and-delivery.md`](docs/06-load-and-delivery.md) | k6 load model, HPA scale-out, canary analysis, and the eight fail-open defects found proving it worked |
 | [`docs/07-aiops.md`](docs/07-aiops.md) | Why the risk commenter's severities are decided by code and only its prose by a model |
+| [`docs/08-session-runbook.md`](docs/08-session-runbook.md) | The 180-minute session, minute by minute, and what it cannot show you |
 | [`docs/16-gap-register.md`](docs/16-gap-register.md) | Sandbox vs. production, row by row — the headline deliverable |
 | [`docs/adr/`](docs/adr/) | Architecture Decision Records |
 | [`docs/diagrams/`](docs/diagrams/) | C4 context, C4 container, request-flow sequences, delivery pipeline |

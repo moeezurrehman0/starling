@@ -49,7 +49,7 @@ Tiers: **L** local (compose + kind), **S** sandbox (KodeKloud EKS), **P** produc
 | 18 | **Cost governance** | free and time-boxed | tagging convention, budgets, anomaly alerts | **Infracost posts the true prod cost on every pull request** |
 | 19 | **Image supply chain** | identical to production | cosign keyless signing, SBOM, Trivy gate, ECR scan-on-push, immutable tags | **no gap — identical in all three tiers, and now verified rather than asserted**: `make image-verify` starts the real container and checks context refresh, a live TLS handshake to AWS, CDS mapping, absence of any shell or package manager (every filesystem entry scanned), and the `nonroot` UID |
 | 20 | **AIOps** | Bedrock unavailable; `AIOPS_PROVIDER=none` renders the comment from the template and says so in its footer | `AIOPS_PROVIDER=bedrock` against a read-only IRSA role — a config swap, no code change | `providers.py` is pluggable and lazily imports `boto3`; the CI risk commenter plans the prod root against LocalStack and so needs **no AWS in any tier**. Severity is decided by `risk.py`, never by a model — see `docs/07-aiops.md` |
-| 21 | **Session lifetime** | **180 minutes**, everything destroyed afterwards | permanent | forces every operation to be a scripted, idempotent, time-budgeted target — kept as a virtue, not a workaround |
+| 21 | **Session lifetime** | **180 minutes**, everything destroyed afterwards | permanent | forces every operation to be a scripted, idempotent, time-budgeted target — kept as a virtue, not a workaround. `scripts/sandbox-up.sh` is resumable via `--from <stage>` and reports each stage against the budget in [`docs/08-session-runbook.md`](08-session-runbook.md); `scripts/sandbox-down.sh` verifies the teardown by querying AWS rather than trusting Terraform (S43); `scripts/sandbox-selftest.sh` tests all three offline |
 | 22 | **Metrics backend** | self-hosted Prometheus on `emptyDir`, 2h retention | Amazon Managed Prometheus, 150-day retention, cross-account | `prometheus-rules.yaml` is the promoted artefact: recording rules and alert expressions transfer to AMP unchanged. The scrape config and storage do not, and are not pretended to. |
 | 23 | **Dashboards** | Grafana with anonymous admin and no auth | Amazon Managed Grafana behind IAM Identity Center, SAML groups | datasource and derived-field wiring is identical; only the auth story differs, and shipping one for a disposable cluster would be effort spent on the part that is thrown away |
 | 24 | **Trace backend** | self-hosted Tempo, `emptyDir`, no sampling | AWS X-Ray or AMP-managed Tempo, tail sampling at the collector | the OTel collector sits between the apps and the backend precisely so the app configuration does not change when the backend or the sampling policy does |
@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S42`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S43`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,11 +622,35 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S42`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S43`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
 all six. *Gap:* none.
+
+**S43. `terraform destroy` succeeding does not mean nothing is left.** The project's stated
+done criterion is that `make sandbox-down` leaves nothing behind, and for most of the
+project the three sandbox lifecycle targets were `echo "Not yet implemented" && exit 1` —
+the headline criterion had no implementation at all, twelve phases in. Writing it exposed
+the more interesting problem: a successful `destroy` means only that every resource **in the
+state file** was deleted, and this project creates a great deal outside state. The AWS Load
+Balancer Controller creates a real ALB, target groups and security groups in response to an
+Ingress object; a PVC becomes a real EBS volume; EKS creates its own CloudWatch log group.
+None are in state, so Terraform can report complete success over a running load balancer —
+and in fact will *fail confusingly* first, because destroying a VPC that still contains an
+orphaned ALB hangs on a `DependencyViolation` that reads like a Terraform bug rather than an
+ordering mistake. *Control:* teardown deletes the Kubernetes objects that own AWS resources
+first and waits for the controller, then destroys, then **asks AWS directly** across ten
+resource types by tag and name prefix. The sweep distinguishes three outcomes rather than
+two — `clear`, `survived`, and **`could not check`** — because a denied API call reported as
+clean is the same fail-open shape as S40, and a sweep that cannot tell the difference will
+certify an empty account it never actually looked at. The literal string `None`, which
+`--output text` prints for an empty result, is filtered explicitly: reading it as a surviving
+resource is the fail-*closed* twin, and an operator who sees a spurious failure every time
+stops reading the output at all. All of it is asserted against stub binaries in
+`scripts/sandbox-selftest.sh` (47 assertions, mutation-tested on seven defects, all seven
+caught), because these scripts run once per session against an account nobody can reproduce.
+*Gap:* the sweep has never run against a real account — only against stubs.
 
 ---
 
