@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S59`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S60`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S59`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S60`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1007,6 +1007,35 @@ and a hosting provider will desync the moment the provider side is rebuilt, and 
 a repository from a git bundle restores exactly the half that was never the problem. The
 assertion here knows the shape of release-please's bookkeeping; it says nothing about the
 next tool that makes the same split.
+
+**S60. The same repository rebuild broke publishing, and the workflow reported success
+while never once pushing an image.** The original repository was renamed to
+`starling-archive-private` and a new one took the name `starling`. GHCR package ownership
+follows the repository, not its name, so all five container packages stayed linked to the
+archived repository while the new one pushed to byte-identical paths — `github.repository`
+is the same string it was before. Every push returned `denied: permission_denied:
+read_package`: the token had `packages: write`, but write on a package it does not own is
+not write.
+
+The failure is ordinary. What it exposed is not. Two Publish runs on `main` were **green**,
+and both were green because the path filter skipped every matrix job — a skipped job and a
+completed one render as the same tick, so "Publish succeeded" was true and "an image was
+published" was false, and nothing in the repository could tell them apart. Publishing had
+never worked here at all, and the only reason it was investigated is that a third run
+happened to touch a service path. Had the release gone out on docs-only commits, the gap
+register would have described a supply chain that did not exist.
+
+Recovery was to delete the five orphaned packages so the new repository could create its
+own; they now read `public | moeezurrehman0/starling` and the tags resolve. *Gap, now
+closed:* the push step's success is the builder's opinion, so the job now asks the
+registry — it reads back the tag it just wrote and fails unless the digest matches
+`steps.push.outputs.digest`. Writing that check repeated the lesson from S59 almost
+exactly: the obvious form, `imagetools inspect --format '{{.Manifest.Digest}}'`, is
+accepted and then ignored by the buildx in use, which prints its default block instead, so
+the comparison would have run against text that was never a digest. It parses the field
+and rejects anything not shaped like one. *Residual gap:* this proves a tag resolves, not
+that the matrix ran — a filtered-out service still publishes nothing and still reports
+success, and that remains indistinguishable from the outside.
 
 ---
 
