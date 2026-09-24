@@ -17,9 +17,58 @@ jobs:
     name: Maintain the release PR
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
       # Keeps an open PR containing the changelog and the next version, derived
       # from the Conventional Commit history. Merging it tags the release.
       - uses: googleapis/release-please-action@v5
         with:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
+
+      # release-please aborts rather than guessing when its two halves of state
+      # disagree -- the tracked manifest and the untracked GitHub releases -- and
+      # that abort is a warning on a green run, so the job succeeds while nothing
+      # is released. See S59. These assert the invariants the abort protects.
+      - name: Assert the release bookkeeping is consistent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # A merged release PR still labelled pending means a version was cut and
+          # never tagged. This is the state that makes release-please abort, and it
+          # is true regardless of whether any release exists yet.
+          #
+          # The label is filtered locally on purpose. Passing --label to gh routes
+          # the query through the search index, which lags behind the label being
+          # applied and returned 0 in a live test while the label was demonstrably
+          # attached -- a check that cannot fail is worse than no check.
+          merged=$(gh pr list --repo "$REPO" --state merged -L 100 \
+            --json number,title,labels)
+          stranded=$(jq '[.[] | select(.labels[].name == "autorelease: pending")]' \
+            <<<"$merged")
+          if [ "$(jq 'length' <<<"$stranded")" -ne 0 ]; then
+            echo "::error::A merged release PR is still labelled" \
+              "'autorelease: pending'. A release was cut but never tagged;" \
+              "release-please will abort every subsequent run. Create the missing" \
+              "release at the merge commit and relabel to 'autorelease: tagged'."
+            jq -r '.[] | "  #\(.number) \(.title)"' <<<"$stranded"
+            exit 1
+          fi
+
+          manifest=$(jq -r '."."' .github/.release-please-manifest.json)
+          latest=$(gh release list --repo "$REPO" -L 1 --json tagName \
+            --jq '.[0].tagName // ""')
+          if [ -z "$latest" ]; then
+            echo "No release exists yet; nothing to compare against ($manifest)."
+            exit 0
+          fi
+          if [ "$latest" != "v$manifest" ]; then
+            echo "::error::Manifest says $manifest but the newest release is" \
+              "$latest. The tracked and untracked halves of the release state" \
+              "have diverged."
+            exit 1
+          fi
+          echo "Manifest $manifest agrees with release $latest."
