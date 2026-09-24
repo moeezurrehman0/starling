@@ -47,14 +47,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           # Only main writes the cache. A pull request that can poison the cache read by
           # main is a supply-chain hole, and a fork PR cannot write it anyway.
@@ -77,7 +77,7 @@ jobs:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-reports
           path: |
@@ -95,9 +95,9 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -127,14 +127,14 @@ jobs:
       # 403 on PRs only -- on a push it never makes the call.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans history, so a shallow clone would only ever find a secret
           # committed in the last commit -- which is the one case a pre-commit hook already
           # catches.
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -149,7 +149,7 @@ jobs:
       needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The sandbox probe runs exactly once per 180-minute KodeKloud session against an
       # account nobody can reproduce, so a bug in it costs the session. It is tested here
@@ -210,7 +210,7 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./scripts/gap-verify.sh
 
       # A Mermaid syntax error does not fail anything. GitHub renders the block
@@ -219,7 +219,7 @@ jobs:
       # stay broken indefinitely. Rendering each diagram is the only way to find
       # out, and it costs about a minute. Negative-tested against a deliberately
       # malformed node.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Diagrams parse
@@ -250,9 +250,9 @@ jobs:
       needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.16.3
 
@@ -295,9 +295,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.8
           # The wrapper intercepts stdout to expose it as a step output, which
@@ -305,7 +305,7 @@ jobs:
           # so by returning empty strings rather than failing.
           terraform_wrapper: false
 
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.53.0
 
@@ -348,7 +348,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Infracost needs an API key. This repository has never been pushed, so it
       # has no secrets, and a hard failure here would make the gate un-passable
@@ -374,7 +374,7 @@ jobs:
           fi
 
       - if: steps.key.outputs.present == 'true'
-        uses: infracost/actions/setup@v3
+        uses: infracost/actions/setup@v4
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
@@ -427,12 +427,12 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Self-test (blocking)
         run: ./scripts/aiops-selftest.sh
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         if: github.event_name == 'pull_request'
         with:
           terraform_version: 1.9.8
@@ -499,7 +499,7 @@ jobs:
       - name: Post or update the comment
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -555,7 +555,7 @@ jobs:
             || '["javascript-typescript"]')
           ) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CodeQL requires GitHub Advanced Security on a PRIVATE repository. Without
       # it, `codeql-action/init` does not skip -- it errors, and since `verdict`
@@ -594,7 +594,7 @@ jobs:
           fi
 
       - if: matrix.language == 'java-kotlin' && steps.ghas.outputs.available == 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
@@ -636,23 +636,23 @@ jobs:
       matrix:
         service: ${{ fromJson(needs.changes.outputs.services) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - run: ./gradlew :services:${{ matrix.service }}:bootJar
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile
@@ -719,14 +719,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -764,7 +764,7 @@ jobs:
             gateway user-service tweet-service timeline-service fanout-worker web
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
