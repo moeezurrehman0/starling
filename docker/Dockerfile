@@ -91,6 +91,32 @@ RUN set -eux; \
 # dialect, which is why an explicit dialect must be supplied alongside it.
 # The AWS values satisfy eager credential and region resolution in the SDK's
 # client builders; no SDK call is made, so they are never authenticated.
+#
+# The OTEL_ exports inside the RUN below are there for a different reason, and
+# it is the interesting one. buildx's docker-container driver injects its own
+# tracing configuration into every build step:
+#
+#   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=unix:///dev/otel-grpc.sock
+#   OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=grpc
+#   OTEL_TRACES_EXPORTER=otlp
+#
+# The OTLP gRPC exporter rejects a unix scheme outright, so the context failed
+# to refresh and all five image builds failed -- from variables no file in this
+# repository sets and no build argument passes.
+#
+# Two details cost real time and are worth writing down. They are exports in
+# the RUN rather than ENV, because ENV does not win: BuildKit injects these over
+# the top of it. And they must be the signal-specific TRACES_ names, because
+# overriding only the generic OTEL_EXPORTER_OTLP_ENDPOINT changes nothing --
+# the signal-specific variable takes precedence and keeps the unix socket. Both
+# wrong versions look correct and neither has any effect, which is why this was
+# settled by printing the environment inside a build rather than by reasoning
+# about it.
+#
+# The host is deliberately .invalid. Disabling the SDK would be simpler and
+# worse: the exporter would never be constructed, its classes would be missing
+# from the archive, and the first traced request in production would pay the
+# class-loading cost this stage exists to remove.
 FROM ${JDK_IMAGE} AS cds
 COPY --from=runtime /javaruntime /opt/java
 COPY --from=exploded /exploded /opt/app
@@ -100,6 +126,10 @@ ENV AWS_REGION=us-east-1 \
     AWS_SECRET_ACCESS_KEY=cds-training \
     AWS_EC2_METADATA_DISABLED=true
 RUN set -eux; \
+    export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://cds-training.invalid:4318/v1/traces; \
+    export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf; \
+    export OTEL_EXPORTER_OTLP_ENDPOINT=http://cds-training.invalid:4318; \
+    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf; \
     /opt/java/bin/java \
       -XX:ArchiveClassesAtExit=/opt/app/application.jsa \
       -Dspring.context.exit=onRefresh \

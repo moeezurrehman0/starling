@@ -47,7 +47,15 @@ IMAGE     := starling/$(SERVICE):$(IMAGE_TAG)
 .PHONY: image
 image: ## Build the jlink+CDS distroless image for SERVICE=<name>
 	$(GRADLE) :services:$(SERVICE):bootJar
-	docker build -f docker/Dockerfile \
+	@# buildx with the docker-container driver, because that is what CI uses and
+	@# the drivers are not equivalent. The default `docker` driver does not inject
+	@# buildkit's own OTEL_EXPORTER_OTLP_TRACES_* variables into build steps; the
+	@# container driver does, and that difference alone broke all five image builds
+	@# in CI while `make image` stayed green. A local build that cannot reproduce a
+	@# CI failure is not a gate, it is a second opinion.
+	@docker buildx inspect starling-ci >/dev/null 2>&1 || \
+	  docker buildx create --name starling-ci --driver docker-container >/dev/null
+	docker buildx build --builder starling-ci --load -f docker/Dockerfile \
 	  --build-arg JAR_FILE=services/$(SERVICE)/build/libs/$(SERVICE).jar \
 	  --build-arg SERVICE=$(SERVICE) \
 	  --build-arg GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo dev) \

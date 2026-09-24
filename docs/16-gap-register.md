@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S48`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S49`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S48`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S49`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -719,6 +719,27 @@ zero that the truncation invented. *Control:* the step now prints the failing-re
 count first and then every finding, never a tail. *Gap:* nothing prevents the next
 reporting step from being written the same way; the property "output is not silently
 truncated" is not itself asserted anywhere.
+
+**S49. The local build and the CI build used different Docker drivers, and only one of
+them could fail.** All five image builds failed on the CDS training run with `Invalid
+endpoint, must start with http:// or https://: unix:///dev/otel-grpc.sock` — a value no
+file in this repository sets and no build argument passes. buildx's `docker-container`
+driver, which `docker/setup-buildx-action` creates, injects its own tracing configuration
+into every build step: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `..._TRACES_PROTOCOL=grpc`
+and `OTEL_TRACES_EXPORTER=otlp`. The application constructs an OTLP exporter during
+context refresh, the gRPC exporter rejects a unix scheme, and the training run exits
+non-zero. `make image` used the default `docker` driver, which injects none of this, so
+the local gate was structurally incapable of reproducing the failure — it was not a weaker
+check, it was a check of a different thing wearing the same name. Two plausible fixes were
+written and verified to do nothing before the real one: `ENV` loses because BuildKit
+injects over it, and overriding the generic `OTEL_EXPORTER_OTLP_ENDPOINT` loses because
+the signal-specific `_TRACES_` variable takes precedence. Both look correct in a diff.
+*Control:* the CDS step exports the signal-specific variables inside the `RUN`, and `make
+image` now builds through a `docker-container` builder so the local command and the CI
+command exercise the same machinery. *Gap:* driver parity is asserted by the Makefile
+using the right flag, not by anything that checks it — and the class is general. Any CI
+runner that injects environment into builds can break a step that reads it, and there is
+no inventory of what this build reads from its environment.
 
 ---
 
