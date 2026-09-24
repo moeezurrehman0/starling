@@ -63,9 +63,9 @@ jobs:
       aiops: ${{ steps.filter.outputs.aiops }}
       services: ${{ steps.matrix.outputs.services }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           # On a push to main there is no base ref to diff against in the usual way; the
