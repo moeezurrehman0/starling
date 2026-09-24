@@ -12,7 +12,7 @@ googleJavaFormat = "1.36.1"
 spotless = "8.10.2"
 spotbugs = "6.5.11"
 jacoco = "0.8.13"
-archunit = "1.4.1"
+archunit = "1.5.0"
 # AWS SDK v2. The v1 SDK (group com.amazonaws) reached end of support in Dec 2025
 # and must not be introduced — see ADR-0012 on why the KCL streams adapter is rejected.
 awsSdk = "2.46.7"
