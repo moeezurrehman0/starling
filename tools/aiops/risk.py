@@ -260,6 +260,22 @@ def _open_cidr_findings(addr: str, rtype: str, change: dict) -> list[Finding]:
 
 _POLICY_KEYS = ("policy", "assume_role_policy", "policy_document")
 
+# IAM actions that cannot be scoped to a resource. AWS defines these as operating
+# on the account rather than on an ARN, and a policy that pairs them with anything
+# other than "*" is rejected at creation time -- so a wildcard here is the only
+# legal form, not a loose grant.
+#
+# Deliberately a short, literal list rather than a prefix rule. "everything that
+# starts with List" is wrong (`dynamodb:ListTagsOfResource` takes a table ARN), and
+# a rule that silently over-matches in a suppression list is the one kind of bug
+# this tool must not have: it would hide real findings and look like a clean plan.
+# Entries are added only when a specific policy in this repo needs one.
+_RESOURCE_LESS_ACTIONS = frozenset(
+    {
+        "dynamodb:liststreams",
+    }
+)
+
 
 def _statements(doc: object) -> list[dict]:
     """Parse an IAM policy document into a list of statements.
@@ -337,15 +353,25 @@ def _policy_findings(addr: str, rtype: str, change: dict) -> list[Finding]:
                     )
                 )
             elif "*" in _as_list(stmt.get("Resource")) and actions:
-                out.append(
-                    Finding(
-                        severity="medium",
-                        kind="wildcard-resource",
-                        address=addr,
-                        summary=f"`{rtype}` allows {len(actions)} action(s) on `*`",
-                        evidence="Scope to specific ARNs where the API supports it.",
+                # Some IAM actions take no resource: they operate on the account,
+                # not on an ARN, and IAM rejects a policy that tries to scope them.
+                # `dynamodb:ListStreams` is the one this repo hits. Reporting those
+                # is worse than useless -- the finding is correct, unfixable, and
+                # appears on every plan forever, which is how a reviewer learns
+                # that this comment is something to scroll past. A statement is
+                # only flagged for the actions that could actually have been
+                # scoped and were not.
+                scopable = [a for a in actions if a.lower() not in _RESOURCE_LESS_ACTIONS]
+                if scopable:
+                    out.append(
+                        Finding(
+                            severity="medium",
+                            kind="wildcard-resource",
+                            address=addr,
+                            summary=f"`{rtype}` allows {len(scopable)} action(s) on `*`",
+                            evidence="Scope to specific ARNs where the API supports it.",
+                        )
                     )
-                )
     return out
 
 

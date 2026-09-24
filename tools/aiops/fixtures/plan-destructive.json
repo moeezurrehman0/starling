@@ -187,6 +187,38 @@
       }
     },
     {
+      "address": "module.irsa.aws_iam_policy.stream_list",
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "starling-prod-stream-list",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "starling-prod-stream-list",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"dynamodb:ListStreams\"], \"Resource\": \"*\"}]}"
+        }
+      }
+    },
+    {
+      "address": "module.irsa.aws_iam_policy.stream_mixed",
+      "mode": "managed",
+      "type": "aws_iam_policy",
+      "name": "starling-prod-stream-mixed",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "starling-prod-stream-mixed",
+          "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"dynamodb:ListStreams\", \"dynamodb:DescribeTable\"], \"Resource\": \"*\"}]}"
+        }
+      }
+    },
+    {
       "address": "module.irsa.aws_iam_role.cross_account",
       "mode": "managed",
       "type": "aws_iam_role",

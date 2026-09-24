@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S53`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S54`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S53`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S54`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -828,6 +828,31 @@ which is most of what goes wrong in a workflow but not the class that produced a
 `startup_failure` here. Recording that distinction matters more than the tool: a lint
 step that a reader assumes covers workflow validity, when it covers most of it, is the
 same trap as a gate that has never run.
+
+**S54. The advisory comment's first-ever finding was one nobody could act on.** Opening
+the first pull request that touched `.github` finally ran the AIOps job on a pull request,
+which is the only event it posts on: it planned the production root against LocalStack —
+109 resources — and left its risk comment. The comment worked. Its two findings were both
+`wildcard-resource` on IRSA policies, and both were `dynamodb:ListStreams`, which AWS
+defines as taking no resource: IAM rejects the policy if it is scoped to anything but
+`*`. The module already said so in a comment. So the tool's first real output was correct,
+permanent and impossible to fix, on every plan, forever — which is precisely how a
+reviewer learns that this comment is something to scroll past, and an advisory that gets
+scrolled past is worse than none, because its presence is mistaken for coverage. The rule
+now suppresses per *action* rather than per statement, from a short literal list, so an
+unscopable action folded in beside a scopable one cannot launder the second. *Gap:* the
+list is maintained by hand and grows only when a policy here needs it, so the first
+encounter with any other resource-less action is a false positive again. A prefix rule
+would be worse — `dynamodb:ListTagsOfResource` does take an ARN — and a suppression that
+silently over-matches is the one defect this tool must not have.
+
+Finding this at all was luck. The fix was opened as its own pull request specifically to
+watch the finding disappear, and the AIOps job did not run: its condition keys on the
+`terraform` and `ci` filters, and `tools/aiops/**` was in neither. A pull request that
+rewrote the risk rules ran every other gate and not the one it changed — and had the
+rewrite been wrong, `main` would have taken it green. The job now has its own filter.
+*Gap:* nothing checks that a job's condition covers the job's own inputs, so this class
+is only ever found by noticing a job that should have run and did not.
 
 ---
 

@@ -100,6 +100,17 @@ assert_has "the public principal finding says why it matters" \
   'Any AWS account can assume or use this' "$DANGER"
 assert_has "an enumerated action on Resource * is medium, not high" \
   '| 🟡 medium | wildcard-resource |' "$DANGER"
+# Some IAM actions take no resource at all, so "*" is their only legal form. A
+# finding that is correct, unfixable and present on every plan is how a reviewer
+# learns to scroll past this comment, which costs more than it catches.
+assert_lacks "an action that cannot be scoped is not reported as unscoped" \
+  'aws_iam_policy.stream_list' "$DANGER"
+# The suppression is per action, not per statement. Folding an unscopable action
+# into a statement alongside a scopable one must not launder the second.
+assert_has "a scopable action is still flagged when it shares a statement" \
+  'aws_iam_policy.stream_mixed' "$DANGER"
+assert_has "only the scopable actions are counted in that statement" \
+  'stream_mixed` | `aws_iam_policy` allows 1 action(s)' "$DANGER"
 assert_has "checkov failures are folded in with their check id" \
   'CKV_AWS_260' "$DANGER"
 assert_has "checkov severity is preserved rather than flattened" \

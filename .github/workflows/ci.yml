@@ -420,6 +420,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.terraform == 'true' ||
+      needs.changes.outputs.aiops == 'true' ||
       needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     permissions:
