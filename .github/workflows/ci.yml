@@ -172,6 +172,28 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck scripts/*.sh tools/*.sh
 
+      # Workflow files were the one thing here verified only by pushing them, and
+      # an invalid one does not fail a job -- it fails the run before any job
+      # starts, with no log and no annotation. See docs/16-gap-register.md S53.
+      #
+      # This narrows that window rather than closing it: actionlint checks syntax,
+      # expressions, runner labels and the shell inside `run:`. It was tried
+      # against the exact failure that motivated it -- a reusable workflow
+      # requesting a permission its caller did not hold -- and reported nothing,
+      # so permission inheritance is still verified only by GitHub, at push time.
+      #
+      # Pinned to a release archive rather than an action, for the reason S50
+      # records: an action that downloads its own tool at run time is not pinned
+      # by pinning the action.
+      - name: Actionlint
+        run: |
+          curl -fsSL -o /tmp/actionlint.tgz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  /tmp/actionlint.tgz" \
+            | sha256sum -c -
+          tar -xzf /tmp/actionlint.tgz -C /tmp actionlint
+          /tmp/actionlint -color
+
   # ---------------------------------------------------------------------------
   # The gap register is this project's headline deliverable, and its own
   # maintenance section states that a row naming an artefact which does not
@@ -211,8 +233,13 @@ jobs:
           echo '{"args":["--no-sandbox","--disable-setuid-sandbox"]}' > /tmp/pptr.json
           for f in docs/diagrams/*.mmd; do
             printf '%-28s ' "$(basename "$f")"
-            npx mmdc -p /tmp/pptr.json -i "$f" -o "/tmp/$(basename "$f").svg" >/tmp/mmd.log 2>&1 \
-              && echo OK || { echo FAIL; tail -20 /tmp/mmd.log; exit 1; }
+            if npx mmdc -p /tmp/pptr.json -i "$f" -o "/tmp/$(basename "$f").svg" >/tmp/mmd.log 2>&1; then
+              echo OK
+            else
+              echo FAIL
+              tail -20 /tmp/mmd.log
+              exit 1
+            fi
           done
 
   helm:

@@ -819,6 +819,16 @@ no `actionlint` in the Scripts job, so every workflow change is verified by push
 and the failure mode for an invalid one is the least diagnosable output the platform
 produces.
 
+*Partly closed:* `actionlint` now runs in the Scripts job, pinned to a release archive
+with a checksum rather than an action. It does not close the gap that prompted it. Run
+against the exact broken file — the call site missing `pull-requests: read` — it reports
+nothing, because permission inheritance between a caller and a reusable workflow is not
+something it models. What it does catch is syntax, expression and `run:` shell errors,
+which is most of what goes wrong in a workflow but not the class that produced a
+`startup_failure` here. Recording that distinction matters more than the tool: a lint
+step that a reader assumes covers workflow validity, when it covers most of it, is the
+same trap as a gate that has never run.
+
 ---
 
 ## Maintenance
