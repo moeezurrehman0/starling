@@ -204,10 +204,11 @@ sandbox-selftest: ## Test the whole lifecycle against stub AWS/terraform/kubectl
 # ---------------------------------------------------------------------------
 .PHONY: diagrams
 diagrams: ## Render every Mermaid diagram to SVG, failing on a parse error
-	@MMDC=$$(command -v mmdc || echo "npx --yes @mermaid-js/mermaid-cli"); \
+	@echo '{"args":["--no-sandbox","--disable-setuid-sandbox"]}' > /tmp/pptr.json; \
+	MMDC=$$(command -v mmdc || echo "npx --yes @mermaid-js/mermaid-cli"); \
 	for f in docs/diagrams/*.mmd; do \
 	  printf '%-30s ' "$$(basename $$f)"; \
-	  $$MMDC -i "$$f" -o "$${f%.mmd}.svg" >/tmp/mmd.log 2>&1 \
+	  $$MMDC -p /tmp/pptr.json -i "$$f" -o "$${f%.mmd}.svg" >/tmp/mmd.log 2>&1 \
 	    && echo OK || { echo FAIL; tail -20 /tmp/mmd.log; exit 1; }; \
 	done
 

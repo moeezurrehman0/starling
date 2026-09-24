@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S46`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S48`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S46`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S48`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -690,6 +690,35 @@ make the rename safe and it certified a broken tree — the reassurance was the 
 *Control:* the assertion scans `git ls-files` output as paths as well as grepping contents,
 and the compile step is the independent witness. *Gap:* neither covers untracked files or
 the working directory's own name, which sits outside the repository entirely.
+
+**S47. A gate that disagrees with itself teaches people to re-run it.** Checkov 3.3.19,
+run six times against an unchanged tree, returned 0, 1, 0, 0, 1 and 3 failures. The
+offender is `CKV2_AWS_19` — a graph check asserting every Elastic IP is attached to an EC2
+instance — evaluated over a `for_each` set, where resolution appears to depend on
+iteration order. The finding was also wrong on the merits: the addresses are attached to
+NAT gateways, which the check does not recognise. But the wrongness is the lesser problem.
+A control that is red on roughly a third of runs cannot be acted on, and the behaviour it
+actually trains is the reflex to press re-run until the colour changes — a reflex that is
+then applied to the genuine failures alongside it. One flaky check devalues the other 258.
+*Control:* the check is skipped with its reasoning recorded at the resource, and the
+scanner is pinned to an exact version in both places CI installs it, so the ruleset cannot
+change underneath the skips that were written against it. *Gap:* the skip is
+project-wide, so a genuinely unattached EIP now passes; nothing here distinguishes a check
+that is flaky from one that is correctly intermittent, and the only evidence of the
+flakiness is a paragraph — re-running six times is not something CI does or could afford
+to do.
+
+**S48. Eleven of twenty-five findings were hidden by a `tail`.** The Checkov step printed
+`tail -30` of the scanner's output, which rendered 7 of 25 failing resources with no
+indication that anything had been cut. Every property of a complete report was present:
+the command ran, the findings were formatted, the section ended. The gap surfaced only
+because the scanner was installed locally and run directly. This is gap S40's shape
+reaching a second tool, and the reason it is dangerous is the fix loop it produces — a
+reader resolves the visible findings, sees the list shorten, and infers progress toward
+zero that the truncation invented. *Control:* the step now prints the failing-resource
+count first and then every finding, never a tail. *Gap:* nothing prevents the next
+reporting step from being written the same way; the property "output is not silently
+truncated" is not itself asserted anywhere.
 
 ---
 

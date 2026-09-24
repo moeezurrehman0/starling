@@ -120,3 +120,27 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "iam_authentication" {
+  description = "Let the application authenticate with a short-lived IAM token instead of the master password. Off in Tier S, where the token-signing path needs IRSA that the playground cannot always create."
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_interval" {
+  description = "Seconds between enhanced-monitoring samples; 0 disables it. Enhanced monitoring reads from the host, so it keeps reporting when the engine itself is starved."
+  type        = number
+  default     = 0
+}
+
+variable "parameter_group_family" {
+  description = "Parameter group family, which must match the engine's major version."
+  type        = string
+  default     = "postgres16"
+}
+
+variable "slow_query_threshold_ms" {
+  description = "Statements slower than this are logged. -1 disables, 0 logs everything -- which on a search database means logging what every user typed."
+  type        = number
+  default     = 1000
+}

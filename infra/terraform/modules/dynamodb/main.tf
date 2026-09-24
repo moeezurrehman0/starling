@@ -24,6 +24,11 @@ locals {
 }
 
 resource "aws_dynamodb_table" "this" {
+  # checkov:skip=CKV_AWS_119:The customer-managed key is wired -- see the
+  #   server_side_encryption block below -- but it is enabled by a conditional on
+  #   var.kms_key_arn, which checkov cannot evaluate, so it reports the Tier S
+  #   case for the Tier P root. scripts/tf-validate.sh asserts that prod passes a
+  #   CMK, which is the property actually worth enforcing.
   for_each = local.tables
 
   name = "${var.table_prefix}${each.key}"

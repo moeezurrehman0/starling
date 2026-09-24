@@ -58,7 +58,12 @@ resource "aws_cloudwatch_log_group" "cluster" {
   # already-exists it did not create.
   name              = "/aws/eks/${var.name}/cluster"
   retention_in_days = var.log_retention_days
-  tags              = var.tags
+  # Control-plane logs contain the full audit trail: every authenticated request,
+  # including who read which Secret. Encrypting them with the same customer-managed
+  # key as etcd means revoking that key revokes access to both the Secrets and the
+  # record of who touched them, rather than leaving the audit log readable.
+  kms_key_id = var.log_kms_key_arn
+  tags       = var.tags
 }
 
 resource "aws_eks_cluster" "this" {

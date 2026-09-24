@@ -55,3 +55,15 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "flow_log_retention_days" {
+  description = "Days to keep VPC flow logs. A year is the audit-useful floor -- flow logs answer questions asked long after the incident -- and the default of never-expire is the single most common source of an unexplained CloudWatch bill."
+  type        = number
+  default     = 365
+}
+
+variable "log_kms_key_arn" {
+  description = "Customer-managed key for the flow log group. Null uses the CloudWatch service key, which still encrypts at rest."
+  type        = string
+  default     = null
+}

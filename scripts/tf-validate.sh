@@ -141,7 +141,14 @@ if command -v checkov >/dev/null 2>&1; then
     ok "checkov envs/prod"
   else
     bad "checkov envs/prod"
-    tail -30 /tmp/checkov.out | sed 's/^/        /'
+    # Print every failing resource, never a tail. An earlier version of this
+    # showed `tail -30`, which rendered 7 of 25 findings while looking like the
+    # whole report -- the reader fixes the 7, sees green, and ships the 18.
+    # A truncated report that does not say it is truncated is gap S40 exactly.
+    n=$(grep -c 'FAILED for resource' /tmp/checkov.out || true)
+    printf '        %s failing resource(s):\n' "$n"
+    grep -E '^Check: CKV|FAILED for resource' /tmp/checkov.out |
+      paste - - 2>/dev/null | sed 's/^/        /'
   fi
   checkov -d "$TF_DIR/envs/sandbox" --quiet --compact --framework terraform >/tmp/checkov-sbx.out 2>&1 || true
   printf '  \033[33mnote\033[0m  sandbox findings are expected; see docs/16-gap-register.md\n'
@@ -252,6 +259,34 @@ refute_grep "the search database has no egress rule" \
 # whatever occupies that range next.
 refute_grep "database ingress is never by CIDR" \
   'cidr_ipv4' "$TF_DIR/modules/database/main.tf"
+
+# ---------------------------------------------------------------------------
+# Witnesses for the controls checkov cannot see.
+#
+# Each of these corresponds to a `checkov:skip` in the module. A skip with no
+# replacement assertion is just a deleted control with a comment on it: the
+# resource can be removed later and nothing anywhere goes red. These are the
+# reason those skips are defensible.
+NET="$TF_DIR/modules/network/main.tf"
+
+# CKV2_AWS_11 -- checkov cannot follow vpc_id to a count-indexed aws_vpc.
+assert_grep "the VPC has flow logs (CKV2_AWS_11 witness)" \
+  'resource "aws_flow_log"' "$NET"
+assert_grep "flow logs capture rejects as well as accepts" \
+  'traffic_type *= *"ALL"' "$NET"
+
+# CKV2_AWS_12 -- same resolver limitation. The default security group ships
+# wide open and is only safe because it is adopted and emptied.
+assert_grep "the default security group is adopted (CKV2_AWS_12 witness)" \
+  'resource "aws_default_security_group"' "$NET"
+
+# CKV_AWS_300 -- the rule exists; checkov judges the configuration as a whole.
+assert_grep "media uploads abort incomplete multipart (CKV_AWS_300 witness)" \
+  'abort_incomplete_multipart_upload' "$TF_DIR/modules/storage/main.tf"
+
+# CKV2_AWS_69 is satisfied by a parameter, which no scanner reads back.
+assert_grep "the database refuses plaintext connections" \
+  'rds\.force_ssl' "$TF_DIR/modules/database/main.tf"
 
 # ---------------------------------------------------------------------------
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"

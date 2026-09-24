@@ -31,13 +31,77 @@ locals {
 # Keys
 # ---------------------------------------------------------------------------
 
+# Needed by the key policies below, to scope service principals to this account.
+data "aws_caller_identity" "current" {}
+
 resource "aws_kms_key" "data" {
   description = "starling production data at rest"
   # Rotation is annual and free; the reason to enable it is not the rotation, it
   # is that the key can be rotated at all without re-encrypting anything.
   enable_key_rotation     = true
   deletion_window_in_days = 30
+  policy                  = data.aws_iam_policy_document.kms_data.json
   tags                    = local.tags
+}
+
+# An explicit key policy, for a reason that is easy to miss: a KMS key with no
+# policy does not get a restrictive default, it gets one granting the account
+# root full access, and from there any principal with a matching IAM policy can
+# use the key. The implicit default is therefore *more* permissive than this
+# document, not less. Writing it out also makes "who can decrypt production data"
+# answerable by reading one resource instead of auditing every IAM policy in the
+# account.
+data "aws_iam_policy_document" "kms_data" {
+  # Checkov reads a KMS *key policy* with the same rules it applies to an IAM
+  # policy, and the two do not mean the same thing. In a key policy, Resource: "*"
+  # is not "every resource in the account" -- it is the only value AWS accepts,
+  # and it means "this key". There is no narrower form to write. Likewise the
+  # account-root statement is the documented prerequisite for the key being
+  # administrable by IAM at all; without it the key can become permanently
+  # unmanageable. Skipping three checks that cannot be satisfied is the honest
+  # option; leaving them failing would train a reader to skim the section.
+  # checkov:skip=CKV_AWS_109:Resource "*" in a key policy scopes to this key.
+  # checkov:skip=CKV_AWS_111:As above -- kms:* is scoped to this key, not the account.
+  # checkov:skip=CKV_AWS_356:As above. No narrower resource form exists in a key policy.
+  statement {
+    sid       = "AllowAccountAdministration"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid = "AllowAwsServicesToUseTheKey"
+    actions = [
+      "kms:Decrypt",
+      "kms:Encrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+    ]
+    resources = ["*"]
+    principals {
+      type = "Service"
+      identifiers = [
+        "s3.amazonaws.com",
+        "rds.amazonaws.com",
+        "dynamodb.amazonaws.com",
+        "logs.${var.region}.amazonaws.com",
+      ]
+    }
+    # Service principals are broad by nature -- "S3" is every bucket in every
+    # account. This condition narrows it to calls made on behalf of this account,
+    # which is the difference between a key usable by our S3 and a key usable by
+    # S3.
+    condition {
+      test     = "StringEquals"
+      variable = "kms:CallerAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 resource "aws_kms_alias" "data" {
@@ -51,7 +115,54 @@ resource "aws_kms_key" "secrets" {
   description             = "starling EKS secrets envelope encryption"
   enable_key_rotation     = true
   deletion_window_in_days = 30
+  policy                  = data.aws_iam_policy_document.kms_secrets.json
   tags                    = local.tags
+}
+
+# Deliberately narrower than the data key: only EKS envelope-encrypts with this,
+# so no other service principal is granted. If this list ever needs a second
+# entry, that is a design change worth noticing rather than a line to append.
+data "aws_iam_policy_document" "kms_secrets" {
+  # Checkov reads a KMS *key policy* with the same rules it applies to an IAM
+  # policy, and the two do not mean the same thing. In a key policy, Resource: "*"
+  # is not "every resource in the account" -- it is the only value AWS accepts,
+  # and it means "this key". There is no narrower form to write. Likewise the
+  # account-root statement is the documented prerequisite for the key being
+  # administrable by IAM at all; without it the key can become permanently
+  # unmanageable. Skipping three checks that cannot be satisfied is the honest
+  # option; leaving them failing would train a reader to skim the section.
+  # checkov:skip=CKV_AWS_109:Resource "*" in a key policy scopes to this key.
+  # checkov:skip=CKV_AWS_111:As above -- kms:* is scoped to this key, not the account.
+  # checkov:skip=CKV_AWS_356:As above. No narrower resource form exists in a key policy.
+  statement {
+    sid       = "AllowAccountAdministration"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid = "AllowEksEnvelopeEncryption"
+    actions = [
+      "kms:Decrypt",
+      "kms:Encrypt",
+      "kms:DescribeKey",
+      "kms:GenerateDataKey*",
+    ]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["eks.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:CallerAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 resource "aws_kms_alias" "secrets" {
@@ -77,6 +188,8 @@ module "network" {
   use_default_vpc = false
   cidr            = var.vpc_cidr
   azs             = var.azs
+
+  log_kms_key_arn = aws_kms_key.data.arn
 
   tags = local.tags
 }
@@ -140,7 +253,11 @@ module "eks" {
   create_node_role     = true
   create_oidc_provider = true
   create_log_group     = true
-  log_retention_days   = 90
+  # A year, not ninety days. The control-plane log is the audit trail, and the
+  # questions it answers -- when did this role first appear, who read that Secret
+  # -- are asked during an investigation that starts long after the event.
+  log_retention_days = 365
+  log_kms_key_arn    = aws_kms_key.secrets.arn
 
   # The API server is not on the internet. Reaching it requires being inside the
   # VPC or on a named egress range -- which is what makes a leaked kubeconfig an
@@ -190,6 +307,9 @@ module "search_db" {
   deletion_protection   = true
   performance_insights  = true
   kms_key_arn           = aws_kms_key.data.arn
+
+  iam_authentication  = true
+  monitoring_interval = 60
 
   use_secrets_manager  = true
   secret_recovery_days = 30

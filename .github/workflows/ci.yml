@@ -191,9 +191,15 @@ jobs:
       - name: Diagrams parse
         run: |
           npm install --no-save @mermaid-js/mermaid-cli
+          # mermaid-cli renders through headless Chromium. Ubuntu 23.10+ blocks
+          # unprivileged user namespaces via AppArmor, so the browser dies with
+          # "No usable sandbox!" before it ever reads a diagram. This is safe
+          # here and only here: the input is five .mmd files from this repo, not
+          # untrusted content.
+          echo '{"args":["--no-sandbox","--disable-setuid-sandbox"]}' > /tmp/pptr.json
           for f in docs/diagrams/*.mmd; do
             printf '%-28s ' "$(basename "$f")"
-            npx mmdc -i "$f" -o "/tmp/$(basename "$f").svg" >/tmp/mmd.log 2>&1 \
+            npx mmdc -p /tmp/pptr.json -i "$f" -o "/tmp/$(basename "$f").svg" >/tmp/mmd.log 2>&1 \
               && echo OK || { echo FAIL; tail -20 /tmp/mmd.log; exit 1; }
           done
 
@@ -265,7 +271,7 @@ jobs:
           tflint_version: v0.53.0
 
       - name: Install checkov
-        run: pipx install checkov==3.2.334
+        run: pipx install checkov==3.3.19
 
       # fmt, validate, tflint and checkov, then the assertions that encode this
       # design specifically: that both tiers read the one table-schema file, that
@@ -423,7 +429,11 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          pip install --quiet checkov
+          # Pinned, and pinned to the same version the terraform job installs.
+          # An unpinned scanner changes its own verdict between runs: the skip
+          # comments in the modules were written against a specific ruleset, and
+          # a minor bump can add a check nobody chose to adopt.
+          pip install --quiet checkov==3.3.19
           checkov -d infra/terraform/envs/prod --compact --quiet \
             -o json --output-file-path /tmp 2>/dev/null || true
           test -f /tmp/results_json.json || echo '{}' > /tmp/results_json.json
@@ -630,7 +640,7 @@ jobs:
         run: ./scripts/image-report.sh starling/${{ matrix.service }}:ci
 
       - name: Vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: starling/${{ matrix.service }}:ci
           format: sarif

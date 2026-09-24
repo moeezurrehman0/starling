@@ -15,6 +15,12 @@ variable "versioning" {
   default     = true
 }
 
+variable "log_retention_days" {
+  description = "Days to keep S3 access logs before expiry. Access logs grow without bound and are the classic source of a surprise storage bill."
+  type        = number
+  default     = 90
+}
+
 variable "kms_key_arn" {
   description = "Customer-managed key. Null falls back to SSE-S3, which is free and still encrypts at rest."
   type        = string

@@ -182,3 +182,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "log_kms_key_arn" {
+  description = "Customer-managed key for the control-plane log group. Null uses the CloudWatch service key, which still encrypts at rest but cannot be revoked independently."
+  type        = string
+  default     = null
+}
