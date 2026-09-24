@@ -743,8 +743,8 @@ no inventory of what this build reads from its environment.
 
 **S50. A pinned action that installs an unpinned script is not pinned.** The image jobs
 used `aquasecurity/trivy-action` at an exact tag, which reads as a controlled dependency.
-The action does not contain the scanner: it checks out `contrib/install.sh` from
-`aquasecurity/trivy@main` — a branch — and runs it. That script began exiting 1 with no
+The action does not contain the scanner: it checks out the install script held under
+`contrib/` in `aquasecurity/trivy@main` — a branch — and runs it. That script began exiting 1 with no
 diagnostic immediately after resolving the release, and all five jobs failed on a day
 nothing in this repository had changed near them. The pin was real and bought nothing,
 because it pinned the wrapper and not the thing being installed. The scan now runs the
