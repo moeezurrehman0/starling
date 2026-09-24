@@ -38,6 +38,15 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   log "building the jars"
   "$ROOT/gradlew" -p "$ROOT" bootJar -x test -x integrationTest --console=plain -q
 
+  # Same builder the Makefile uses, for the same reason: the default `docker`
+  # driver and the `docker-container` driver are not equivalent, and CI uses the
+  # latter. The container driver injects buildkit's own OTEL_EXPORTER_OTLP_*
+  # variables into build steps and the default driver does not -- a difference
+  # that once broke every image build in CI while the local build stayed green.
+  # A local path that cannot reproduce a CI failure is not a gate.
+  docker buildx inspect starling-ci >/dev/null 2>&1 ||
+    docker buildx create --name starling-ci --driver docker-container >/dev/null
+
   for svc in "${SERVICES[@]}"; do
     log "building image starling/$svc:$TAG"
     if [ "$svc" = "web" ]; then
@@ -45,6 +54,9 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
       # -- the same context compose.yaml uses. Narrowing it to web/ looks tidier
       # and fails with "/web: not found", which reads like a missing directory
       # rather than a context that is one level too deep.
+      #
+      # Plain `docker build` here, matching `make image-web` and compose: the
+      # web image is the one CI builds through compose, not through buildx.
       docker build -q -f "$ROOT/docker/Dockerfile.web" -t "starling/web:$TAG" "$ROOT" >/dev/null
     else
       # The glob matches both the boot jar and the -plain.jar Gradle also emits.
@@ -56,7 +68,11 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         jar="$candidate"
       done
       [ -n "$jar" ] || die "no bootJar for $svc — run ./gradlew bootJar"
-      docker build -q -f "$ROOT/docker/Dockerfile" \
+      # --load is required, not cosmetic: the container driver keeps the result
+      # in its own store, and `kind load docker-image` reads the host daemon.
+      # Without it the build succeeds and the pods sit in ErrImagePull.
+      docker buildx build --builder starling-ci --load -q \
+        -f "$ROOT/docker/Dockerfile" \
         --build-arg "SERVICE=$svc" \
         --build-arg "JAR_FILE=${jar#"$ROOT/"}" \
         --build-arg "GIT_SHA=$(git -C "$ROOT" rev-parse --short HEAD)" \

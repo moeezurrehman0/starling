@@ -735,9 +735,12 @@ written and verified to do nothing before the real one: `ENV` loses because Buil
 injects over it, and overriding the generic `OTEL_EXPORTER_OTLP_ENDPOINT` loses because
 the signal-specific `_TRACES_` variable takes precedence. Both look correct in a diff.
 *Control:* the CDS step exports the signal-specific variables inside the `RUN`, and `make
-image` now builds through a `docker-container` builder so the local command and the CI
-command exercise the same machinery. *Gap:* driver parity is asserted by the Makefile
-using the right flag, not by anything that checks it — and the class is general. Any CI
+image` and `scripts/kind-deploy.sh` both build through the same `docker-container` builder
+so every local path and the CI command exercise the same machinery. The kind path needs
+`--load` on top, because the container driver keeps its result in its own store while
+`kind load docker-image` reads the host daemon — without it the build succeeds and the
+pods sit in `ErrImagePull`. *Gap:* driver parity is asserted by those two files using the
+right flag, not by anything that checks it — and the class is general. Any CI
 runner that injects environment into builds can break a step that reads it, and there is
 no inventory of what this build reads from its environment.
 
