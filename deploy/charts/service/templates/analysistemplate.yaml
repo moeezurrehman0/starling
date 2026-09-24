@@ -1,0 +1,109 @@
+{{- if .Values.rollout.enabled }}
+# Automated canary analysis.
+#
+# The whole value of a canary is the decision at the end of it. A canary with a
+# human pause is just a slow deploy: the operator watches a dashboard for two
+# minutes, sees nothing obviously wrong, and clicks promote. That catches
+# catastrophic failures and nothing subtler, and it is precisely the case where
+# the operator is least equipped — a 2% error-rate regression is invisible to the
+# eye and obvious to a query.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "service.name" . }}-canary
+  labels: {{- include "service.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: service
+    - name: namespace
+  metrics:
+    - name: error-rate
+      # Measured repeatedly, not once. A single sample taken at the end of the
+      # pause would miss a canary that failed for the first 40 seconds and
+      # recovered, which is exactly the shape of a bad config that a restart
+      # papers over.
+      interval: 30s
+      count: {{ .Values.rollout.analysis.count }}
+      initialDelay: {{ .Values.rollout.analysis.initialDelay }}
+      # One breach aborts. `failureLimit: 0` is deliberate and is the difference
+      # between a gate and a suggestion: any tolerance means a build that is
+      # broken half the time can still be promoted.
+      failureLimit: 0
+      # No data is a FAILURE, not a pass. This was originally written the other
+      # way round and the rollback drill caught it: the query selected a label
+      # that does not exist, every measurement came back empty, and Argo
+      # promoted a deliberately broken canary while reporting "Successful". A
+      # gate that cannot see is not a gate. See docs/16-gap-register.md #32.
+      inconclusiveLimit: {{ .Values.rollout.analysis.inconclusiveLimit }}
+      provider:
+        prometheus:
+          address: {{ .Values.rollout.analysis.prometheusUrl }}
+          # Note the `>= 500` numerator and the unfiltered denominator: this is
+          # the fraction of *all* requests that failed, not the ratio of 5xx to
+          # 2xx. The latter is undefined when there is no success traffic, which
+          # is the moment it matters most.
+          #
+          # The selector is `app`, which is the label the pod scrape actually
+          # produces. An earlier version selected `service`, a label that exists
+          # on no series in this cluster -- and the failure mode was silent.
+          #
+          # This aggregates the whole service, canary and stable together,
+          # because without a traffic-routing provider there is no label that
+          # separates them. A canary at 20% weight therefore dilutes its own
+          # error signal roughly fivefold, so the threshold below is set against
+          # the *blended* rate, not the canary's own. See gap register #32.
+          # `or vector(0)` on the numerator, and a DELIBERATELY unguarded
+          # denominator. Both halves of that are load-bearing.
+          #
+          # In PromQL a selector that matches no series yields an empty vector,
+          # not zero. A healthy service has no 5xx series at all, so the bare
+          # numerator is empty, empty/anything is empty, and the metric reports
+          # no data -- on a service that is working perfectly. `or vector(0)`
+          # turns "no errors" into the number 0, which is what it means.
+          #
+          # The denominator is left unguarded on purpose. If the service is
+          # emitting no request metrics whatsoever -- wrong label, scrape
+          # broken, Prometheus unreachable -- the whole expression stays empty,
+          # `len(result) > 0` is false, and the gate fails closed. An earlier
+          # version wrapped it in clamp_min(..., 0.001), which manufactured a
+          # denominator out of nothing and turned exactly that case into a
+          # confident 0. See docs/16-gap-register.md #32.
+          query: |
+            (
+              sum(rate(http_server_requests_seconds_count{
+                namespace="{{ "{{args.namespace}}" }}",
+                app="{{ "{{args.service}}" }}",
+                status=~"5..",
+                uri!~"/actuator.*"
+              }[{{ .Values.rollout.analysis.lookback }}])) or vector(0)
+            )
+            /
+            sum(rate(http_server_requests_seconds_count{
+              namespace="{{ "{{args.namespace}}" }}",
+              app="{{ "{{args.service}}" }}",
+              uri!~"/actuator.*"
+            }[{{ .Values.rollout.analysis.lookback }}]))
+      # `len(result) > 0` is load-bearing: without it an empty result set makes
+      # the comparison vacuously true and the canary is promoted unmeasured.
+      successCondition: len(result) > 0 && result[0] < {{ .Values.rollout.analysis.maxErrorRate }}
+    - name: latency-p95
+      interval: 30s
+      count: {{ .Values.rollout.analysis.count }}
+      initialDelay: {{ .Values.rollout.analysis.initialDelay }}
+      failureLimit: 0
+      inconclusiveLimit: {{ .Values.rollout.analysis.inconclusiveLimit }}
+      provider:
+        prometheus:
+          address: {{ .Values.rollout.analysis.prometheusUrl }}
+          # A build can be perfectly correct and twice as slow. Error rate alone
+          # promotes it.
+          query: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_server_requests_seconds_bucket{
+                namespace="{{ "{{args.namespace}}" }}",
+                app="{{ "{{args.service}}" }}",
+                uri!~"/actuator.*"
+              }[{{ .Values.rollout.analysis.lookback }}]))
+            )
+      successCondition: len(result) > 0 && result[0] < {{ .Values.rollout.analysis.maxP95Seconds }}
+{{- end }}

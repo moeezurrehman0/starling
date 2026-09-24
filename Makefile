@@ -201,3 +201,19 @@ diagrams: ## Render every Mermaid diagram to SVG, failing on a parse error
 	  printf '%-30s ' "$$(basename $$f)"; \
 	  mmdc -i "$$f" -o "$${f%.mmd}.svg" >/dev/null 2>&1 && echo OK || { echo FAIL; exit 1; }; \
 	done
+
+.PHONY: load-smoke
+load-smoke: ## One pass through the product flow, in-cluster — proves the k6 harness still works
+	@./scripts/load-test.sh smoke
+
+.PHONY: load-test
+load-test: ## Ramped arrival-rate load test that drives the HPA; PEAK_RPS=<n> DURATION=<t>
+	@./scripts/load-test.sh ramp $${PEAK_RPS:-20} $${DURATION:-2m}
+
+.PHONY: rollback-drill
+rollback-drill: ## Ship a deliberately broken canary and assert Argo Rollouts rejects it
+	@./scripts/rollback-drill.sh
+
+.PHONY: rollback-drill-control
+rollback-drill-control: ## Control run — the same canary machinery must PROMOTE a healthy build
+	@./scripts/rollback-drill.sh --healthy

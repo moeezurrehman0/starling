@@ -7,9 +7,46 @@ image:
 
 networkPolicy:
   # The web frontend is the only in-cluster caller; the Ingress controller lives
-  # in its own namespace and is admitted by the ingress rule below.
-  allowFrom: [web]
+  # in its own namespace and is admitted by the ingress rule below. `k6` is the
+  # load-test Job (scripts/load-test.sh), which runs in-cluster rather than
+  # through a port-forward so that it actually traverses the Service and the
+  # endpoint set the HPA is about to change.
+  allowFrom: [web, k6]
   allowTo: [user-service, tweet-service, timeline-service, redis-main]
+
+# The gateway is the only workload that autoscales in dev. It is the entry point,
+# so it sees every request and is the first thing to saturate; scaling the whole
+# mesh on a laptop would exhaust the Docker VM before it demonstrated anything.
+#
+# minReplicas is 2, not 1, deliberately: an HPA whose floor is a single pod
+# cannot distinguish "scaled out" from "recovered from having no redundancy", and
+# the scale-down drill would take the service to one replica and call it success.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  # 60%, below the 70% default. Container CPU throttling starts biting well
+  # before the average reaches the limit, so a target set at the point of pain
+  # scales out only once users are already feeling it.
+  targetCPUUtilizationPercentage: 60
+
+# Canary delivery, on in dev so the drill is rehearsable without touching prod.
+# The steps are shorter than prod's: the point on Tier L is to demonstrate that
+# the analysis aborts a bad build, and a 20-minute rollout does not make that
+# demonstration more convincing, only slower.
+rollout:
+  enabled: true
+  steps:
+    - { setWeight: 20, pause: 1m }
+    - { setWeight: 50, pause: 1m }
+    - { setWeight: 100, pause: 30s }
+  analysis:
+    # Tier L runs a shorter window than prod. The drill has to fit inside a
+    # laptop's patience, and the trade-off is explicit: a 1m window is noisier,
+    # so the dev gate is more likely to flag a blip. Prod keeps the 2m default.
+    lookback: 1m
+    initialDelay: 1m
+    count: 4
 
 ingress:
   enabled: false

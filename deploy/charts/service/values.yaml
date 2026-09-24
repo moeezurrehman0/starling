@@ -100,6 +100,49 @@ autoscaling:
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
 
+# --- progressive delivery ----------------------------------------------------
+#
+# Off by default. A canary is only meaningful where there is enough traffic to
+# measure and a metrics backend to measure it with; turning it on everywhere
+# would add a controller dependency to workloads that cannot benefit.
+rollout:
+  enabled: false
+  # Weight steps. Each entry becomes a setWeight followed by a pause, and the
+  # analysis runs across all of them.
+  steps:
+    - { setWeight: 20, pause: 2m }
+    - { setWeight: 50, pause: 2m }
+    - { setWeight: 100, pause: 30s }
+  analysis:
+    prometheusUrl: http://prometheus.observability.svc.cluster.local:9090
+    # The rate() lookback window used by every query.
+    lookback: 2m
+    # How long to wait before the FIRST measurement. This must be at least the
+    # lookback, and the reason is not tuning -- it is correctness.
+    #
+    # A rate() over [2m] taken the instant the canary starts is computed over a
+    # window that is almost entirely the *previous* state: the rolling restart
+    # itself, in-flight requests cut off as old pods terminate, and any errors
+    # from whatever was deployed before. With failureLimit 0, one such sample
+    # aborts the rollout. Observed repeatedly: a known-good build aborted at
+    # t+15s attributing the previous deploy's 5xx to the new one.
+    #
+    # Waiting one full window means the first measurement describes only the
+    # canary. See docs/16-gap-register.md #36.
+    initialDelay: 2m
+    # Six samples at 30s covers the full step sequence with margin. Too few and
+    # the analysis finishes before the canary has seen steady traffic; too many
+    # and the rollout outlives the pauses it is supposed to gate.
+    count: 6
+    # Two consecutive no-data results end the rollout as inconclusive rather than
+    # letting it hang. Inconclusive leaves the canary in place for a human, which
+    # is the right default for "the monitoring is broken".
+    inconclusiveLimit: 2
+    # 1% of requests. Not zero: a single 500 from a health-check race would abort
+    # every rollout, and a gate that fires on noise gets disabled.
+    maxErrorRate: 0.01
+    maxP95Seconds: 1.0
+
 # A PDB with minAvailable: 1 on a single-replica workload blocks node drain
 # forever, so this is only rendered when replicas (or minReplicas) exceed one.
 # The chart works that out rather than trusting each values file to remember.

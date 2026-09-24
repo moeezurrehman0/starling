@@ -64,6 +64,28 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      # Publish Prometheus histogram buckets for HTTP server timings.
+      #
+      # Without this Micrometer exports only _count and _sum, so
+      # http_server_requests_seconds_bucket does not exist at all and any
+      # histogram_quantile() over it returns an empty vector -- forever, and
+      # silently. The canary's p95 gate was written against those buckets and
+      # could never have fired. See docs/16-gap-register.md #37.
+      percentiles-histogram:
+        http.server.requests: true
+      # Bound the bucket range. An unbounded histogram over a route with high
+      # latency variance is a cardinality problem, not an observability win.
+      #
+      # BOTH bounds are set. Supplying only a maximum is rejected at runtime --
+      # Micrometer validates max >= min against a default minimum that is larger
+      # than any sensible HTTP maximum, and the resulting
+      # InvalidConfigurationException is thrown per request from inside the
+      # metrics filter, so the app starts, passes its probes, and then 500s.
+      minimum-expected-value:
+        http.server.requests: 5ms
+      maximum-expected-value:
+        http.server.requests: 5s
   tracing:
     sampling:
       probability: 1.0

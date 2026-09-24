@@ -27,6 +27,31 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 command -v helm >/dev/null || { echo "helm is required"; exit 1; }
 command -v kubeconform >/dev/null || { echo "kubeconform is required"; exit 1; }
 
+# CRD schemas.
+#
+# kubeconform only knows the built-in API groups, so an Argo Rollouts `Rollout`
+# fails as "could not find schema". The tempting fix is
+# `-ignore-missing-schemas`, and it is the wrong one: it silences the error for
+# *every* unknown kind, including a typo'd `Deploymnet`, and the check then
+# passes on manifests that will never apply. Pointing at the CRD catalog keeps
+# the validation strict and merely teaches it about the two kinds this repo
+# actually uses.
+#
+# Vendored locally when present so the check works offline and is not a hidden
+# dependency on a third-party repository staying up.
+# NOTE: assigned with an `if`, not `${VAR:-default}`. The default contains `}}`
+# and bash terminates the parameter expansion at the first `}`, silently
+# truncating the URL into something kubeconform rejects as a bad template.
+CRD_CATALOG='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+if [ -z "${CRD_SCHEMAS:-}" ]; then
+  CRD_SCHEMAS="$CRD_CATALOG"
+fi
+if [ -d "$ROOT/config/crd-schemas" ]; then
+  CRD_SCHEMAS="$ROOT/config/crd-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+fi
+kc() { kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" \
+         -schema-location default -schema-location "$CRD_SCHEMAS" "$@"; }
+
 log "helm lint"
 for chart in service dev-infra observability; do
   if helm lint "$ROOT/deploy/charts/$chart" \
@@ -49,7 +74,7 @@ for env in "${ENVS[@]}"; do
       sed 's/^/        /' /tmp/he.txt
       continue
     fi
-    if kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" "$out" >/tmp/kc.txt 2>&1; then
+    if kc "$out" >/tmp/kc.txt 2>&1; then
       ok "$env/$svc"
     else
       bad "$env/$svc — schema"
@@ -60,7 +85,7 @@ done
 
 log "render + schema check: dev-infra and the app-of-apps"
 if helm template infra "$ROOT/deploy/charts/dev-infra" >/tmp/render-infra.yaml 2>/tmp/he.txt \
-   && kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" /tmp/render-infra.yaml >/dev/null 2>&1; then
+   && kc /tmp/render-infra.yaml >/dev/null 2>&1; then
   ok "dev-infra"
 else
   bad "dev-infra"
@@ -269,7 +294,7 @@ log "observability: rendered stack"
 # have one. A single mistaken namespace value puts Grafana in the privileged namespace
 # and nothing anywhere complains.
 if helm template observability "$ROOT/deploy/charts/observability" >/tmp/render-obs.yaml 2>/tmp/he.txt \
-   && kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" /tmp/render-obs.yaml >/dev/null 2>&1; then
+   && kc /tmp/render-obs.yaml >/dev/null 2>&1; then
   ok "charts/observability — template + schema"
 else
   bad "charts/observability — template or schema"
@@ -319,6 +344,69 @@ if command -v docker >/dev/null 2>&1; then
   fi
 else
   printf '  \033[1;33mSKIP\033[0m  promtool (docker unavailable)\n'
+fi
+
+
+log "progressive delivery: HPA and canary wiring"
+# Every failure this catches renders cleanly and passes kubeconform. They are
+# all "the object exists and does nothing" faults, which is the hardest class to
+# notice because every command you would run to check reports success.
+for env in "${ENVS[@]}"; do
+  for svc in "${SERVICES[@]}"; do
+    out="/tmp/render-$env-$svc.yaml"
+    [ -s "$out" ] || continue
+    if python3 "$ROOT/scripts/lib/validate-rollout.py" "$out" "$env" "$svc" >/tmp/vr.txt 2>&1; then
+      # Only report on the services that actually opted in, so the summary is
+      # not padded with twelve lines confirming that a Deployment is not a canary.
+      if grep -q 'kind: Rollout' "$out" || grep -q 'HorizontalPodAutoscaler' "$out"; then
+        ok "$env/$svc — HPA target and canary analysis are wired to a real workload"
+      fi
+    else
+      bad "$env/$svc — progressive delivery"
+      sed 's/^/        /' /tmp/vr.txt
+    fi
+  done
+done
+
+log "load: the k6 harness can reach what it is pointed at"
+# A load test blocked by a NetworkPolicy fails as connection-refused, which is
+# indistinguishable from the service being down and gets diagnosed as one.
+for env in "${ENVS[@]}"; do
+  out="/tmp/render-$env-gateway.yaml"
+  [ -s "$out" ] || continue
+  if [ "$env" = "dev" ]; then
+    if python3 -c "
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open('$out')) if d]
+pol = [d for d in docs if d['kind'] == 'NetworkPolicy']
+allowed = {
+    ps['podSelector']['matchLabels'].get('app.kubernetes.io/name')
+    for p in pol for r in p['spec'].get('ingress', []) for ps in r.get('from', [])
+    if 'podSelector' in ps
+}
+sys.exit(0 if 'k6' in allowed else 1)
+" 2>/dev/null; then
+      ok "$env/gateway — the in-cluster load generator is admitted"
+    else
+      bad "$env/gateway — k6 is not in allowFrom; scripts/load-test.sh will time out"
+    fi
+  fi
+done
+
+log "load: scenarios and thresholds exist and agree"
+for scenario in smoke ramp steady; do
+  if [ -f "$ROOT/load/$scenario.js" ]; then
+    ok "load/$scenario.js"
+  else
+    bad "load/$scenario.js is referenced by scripts/load-test.sh but missing"
+  fi
+done
+# The SLO numbers live in one place on purpose. Two definitions of the objective
+# is how a load test passes while the burn-rate alert fires.
+if grep -q 'thresholds' "$ROOT/load/ramp.js" && grep -q "from './lib/slo.js'" "$ROOT/load/ramp.js"; then
+  ok "ramp.js takes its thresholds from the shared SLO definition"
+else
+  bad "ramp.js defines thresholds locally — they will drift from the Prometheus SLOs"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

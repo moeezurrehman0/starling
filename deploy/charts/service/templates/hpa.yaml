@@ -6,8 +6,17 @@ metadata:
   labels: {{- include "service.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
+    # Must follow the workload kind. An HPA pointed at a Deployment that no
+    # longer exists because the chart now renders a Rollout reports
+    # `FailedGetScale` and does nothing -- and `kubectl get hpa` still shows the
+    # object, so the cluster looks autoscaled and is not.
+    {{- if .Values.rollout.enabled }}
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    {{- else }}
     apiVersion: apps/v1
     kind: Deployment
+    {{- end }}
     name: {{ include "service.name" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}

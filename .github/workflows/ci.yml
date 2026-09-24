@@ -468,6 +468,22 @@ jobs:
       - name: Run the suite
         run: make e2e
 
+      # The same k6 scenario the load harness runs in-cluster, against the compose
+      # stack. It is four requests and adds seconds, but it is the only check in CI
+      # that exercises register -> login -> post -> timeline as one authenticated
+      # flow over HTTP, and it keeps load/lib/flow.js honest: a signature change in
+      # the API breaks the load harness here rather than during a rollout drill
+      # weeks later, when the failure looks like a canary problem.
+      #
+      # k6 runs in a container so the job needs no k6 install, and --network host
+      # is what lets it reach the 127.0.0.1-bound compose ports.
+      - name: Smoke the API with the load harness
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/load:/load" \
+            -e BASE_URL=http://localhost:8080 \
+            grafana/k6:0.52.0 run /load/smoke.js
+
       - name: Diagnose a failure
         if: failure()
         run: |

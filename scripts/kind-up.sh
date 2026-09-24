@@ -18,6 +18,8 @@ set -euo pipefail
 
 CLUSTER="${CLUSTER:-twitter-clone}"
 CNI="${CNI:-calico}"
+METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-0.7.2}"
+ARGO_ROLLOUTS_VERSION="${ARGO_ROLLOUTS_VERSION:-1.7.2}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -78,6 +80,28 @@ fi
 log "waiting for nodes to become Ready"
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
+# --- metrics-server ---------------------------------------------------------
+#
+# kind ships no metrics API. Without it an HPA is created happily, reports
+# `<unknown>/70%` forever, and never scales -- a control that exists, looks
+# configured and does nothing. That is the same silent-success failure mode as
+# a NetworkPolicy under a CNI that ignores it.
+#
+# `--kubelet-insecure-tls` is required because kind's kubelet serving
+# certificates are self-signed and not in the cluster CA. This is a Tier L
+# concession; on EKS the managed add-on needs no such flag, which is why this
+# lives in the kind bootstrap and not in a chart.
+
+if kubectl get deployment -n kube-system metrics-server >/dev/null 2>&1; then
+  log "metrics-server already installed"
+else
+  log "installing metrics-server (HPA has no input without it)"
+  kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/v${METRICS_SERVER_VERSION}/components.yaml"
+  kubectl -n kube-system patch deployment metrics-server --type=json \
+    -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+fi
+kubectl -n kube-system rollout status deployment/metrics-server --timeout=300s
+
 # --- ArgoCD -----------------------------------------------------------------
 
 if kubectl get ns argocd >/dev/null 2>&1; then
@@ -114,6 +138,25 @@ else
   log "for a working cluster without a remote, run:  make kind-deploy"
   log "which helm-installs the same charts directly. Same manifests, no GitOps."
 fi
+
+# --- Argo Rollouts ----------------------------------------------------------
+#
+# Installed separately from ArgoCD -- they are different projects. ArgoCD syncs
+# manifests; Rollouts owns the progressive-delivery strategy once they land.
+#
+# The CRDs have to exist before any chart that renders a Rollout is installed,
+# otherwise `helm install` fails with "no matches for kind Rollout", which reads
+# like a broken chart rather than a missing controller.
+
+if kubectl get crd rollouts.argoproj.io >/dev/null 2>&1; then
+  log "argo rollouts already installed"
+else
+  log "installing Argo Rollouts"
+  kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -n argo-rollouts --server-side \
+    -f "https://github.com/argoproj/argo-rollouts/releases/download/v${ARGO_ROLLOUTS_VERSION}/install.yaml"
+fi
+kubectl -n argo-rollouts rollout status deployment/argo-rollouts --timeout=300s
 
 echo
 log "cluster ready"

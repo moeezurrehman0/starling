@@ -1,5 +1,23 @@
+{{- /*
+One template, two kinds.
+
+When canary delivery is on this renders an Argo Rollout instead of a Deployment.
+The pod template below is shared verbatim, which is the entire point: the common
+alternative — a separate rollout.yaml holding a copy of the pod spec — means the
+manifest that actually ships to production is the one nobody edits, and the two
+drift the first time a probe or an env var changes in only one of them.
+
+A Rollout is a drop-in replacement for a Deployment: same selector, same pod
+template, same scale semantics. Only `spec.strategy` differs.
+*/ -}}
+{{- $canary := .Values.rollout.enabled -}}
+{{- if $canary }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+{{- else }}
 apiVersion: apps/v1
 kind: Deployment
+{{- end }}
 metadata:
   name: {{ include "service.name" . }}
   labels: {{- include "service.labels" . | nindent 4 }}
@@ -13,6 +31,63 @@ spec:
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   revisionHistoryLimit: 3
+  {{- if $canary }}
+  strategy:
+    canary:
+      # Percentage steps with a pause between each. The first step is small and
+      # the analysis runs alongside it, so a build that is broken for every
+      # request is rejected having served {{ (index .Values.rollout.steps 0).setWeight }}% of traffic rather than all of it.
+      #
+      # These are *setWeight* steps without a traffic-routing provider, so on
+      # Tier L the weight is approximated by replica counts rather than enforced
+      # at the proxy. Gap row 32 records the difference: with 2 replicas a 20%
+      # step is really 50%. The step list is the Tier P artefact and is not
+      # weakened to match what kind can express.
+      steps:
+      {{- range $i, $step := .Values.rollout.steps }}
+        - setWeight: {{ $step.setWeight }}
+        - pause: { duration: {{ $step.pause }} }
+        {{- if eq $i 0 }}
+        # An INLINE analysis step, in addition to the background analysis below.
+        # The two are not redundant and the difference is not cosmetic.
+        #
+        # A background analysis runs alongside the steps and aborts the rollout
+        # the moment a metric fails -- good for catching a fast, obvious break.
+        # But when the last step finishes, the rollout promotes and *terminates*
+        # the background run, and Argo scores a terminated metric as Successful
+        # ("Metric Assessment Result - Successful: Run Terminated"). So if the
+        # steps finish before the analysis has gathered enough samples, a broken
+        # build is promoted and the analysis reports success. That is not a
+        # hypothetical: it is what the first run of scripts/rollback-drill.sh
+        # actually did. See docs/16-gap-register.md #33.
+        #
+        # An inline step cannot be outrun. The rollout will not advance past it
+        # until the run reaches a terminal state, so the gate holds regardless of
+        # how the step durations and the analysis interval line up.
+        - analysis:
+            templates:
+              - templateName: {{ include "service.name" $ }}-canary
+            args:
+              - name: service
+                value: {{ include "service.name" $ }}
+              - name: namespace
+                value: {{ $.Release.Namespace }}
+        {{- end }}
+      {{- end }}
+      analysis:
+        # startingStep 1: the analysis begins *after* the first weight is applied,
+        # not before. Starting at step 0 queries Prometheus for a canary that has
+        # not received a request yet, and an empty result is inconclusive, which
+        # stalls every rollout on a metric that was never going to have data.
+        startingStep: 1
+        templates:
+          - templateName: {{ include "service.name" . }}-canary
+        args:
+          - name: service
+            value: {{ include "service.name" . }}
+          - name: namespace
+            value: {{ .Release.Namespace }}
+  {{- end }}
   selector:
     matchLabels: {{- include "service.selectorLabels" . | nindent 6 }}
   template:

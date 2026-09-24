@@ -58,9 +58,17 @@ spec:
           volumeMounts:
             - {name: state, mountPath: /var/lib/localstack}
             - {name: tmp, mountPath: /tmp}
+          # 3Gi, not 1Gi. At 1Gi LocalStack is OOMKilled part-way through a
+          # 30 rps load test -- and because its state is an emptyDir plus an
+          # in-process index, the restart silently destroys every DynamoDB
+          # table. The services then answer ResourceNotFoundException, which
+          # surfaces as a 90% 5xx rate and aborts the canary. The failure looks
+          # exactly like a bad application build; it is the emulator dying.
+          # See gap register row 38: in the sandbox the data store, not the
+          # application, is the load ceiling -- real DynamoDB has no such limit.
           resources:
-            requests: {cpu: 200m, memory: 512Mi}
-            limits: {memory: 1Gi}
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {memory: 3Gi}
       volumes:
         - name: state
           emptyDir: {}

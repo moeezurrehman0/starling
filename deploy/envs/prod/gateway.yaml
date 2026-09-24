@@ -20,3 +20,28 @@ env:
   TIMELINE_SERVICE_URL: http://timeline-service:8083
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
   RATE_LIMIT_ENABLED: "true"
+
+# The gateway is the promotion canary. It fronts every request, so it is both
+# the workload with the most traffic to analyse and the one where a bad build
+# has the widest blast radius.
+rollout:
+  enabled: true
+  # Slower and more conservative than dev. The pauses are long enough for the
+  # 2m rate() windows in the analysis to be full windows rather than partial
+  # ones -- a rate() over a window shorter than the pause reports an average
+  # that includes the pre-canary period and dilutes the signal.
+  steps:
+    - { setWeight: 10, pause: 5m }
+    - { setWeight: 25, pause: 5m }
+    - { setWeight: 50, pause: 5m }
+    - { setWeight: 100, pause: 1m }
+  analysis:
+    count: 20
+    maxErrorRate: 0.005
+    maxP95Seconds: 0.8
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 60

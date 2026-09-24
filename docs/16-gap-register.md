@@ -494,6 +494,95 @@ that fixes one subsystem can silently remove another.**
 
 ---
 
+**32. A canary gate that matches no time series reports success.** The `AnalysisTemplate`
+selected `service="gateway"`. Nothing in this cluster carries a `service` label — the scrape
+relabelling produces `app`. The query was therefore syntactically valid, semantically
+meaningless, and returned an empty vector on every evaluation. Argo Rollouts scores an empty
+result as `Successful`, so the gate promoted a build with a measured 51.6% error rate while
+reporting that it had analysed it. *Control:* both `successCondition`s now begin
+`len(result) > 0 &&`, so "no data" is a failure rather than a pass, and
+`validate-rollout.py` asserts that property statically. The general rule: **a monitoring
+query that cannot fail is not a control**, and the only way to know which one you have is to
+run it against a deliberately broken build.
+
+**33. Background analysis is terminated at promotion, and a terminated run is scored
+successful.** The canary ran its analysis as `backgroundAnalysis`. When the last canary step
+completed, the rollout promoted and terminated the still-running `AnalysisRun`; the
+controller logged `Metric Assessment Result - Successful: Run Terminated`. With short steps
+the analysis never gathered enough samples to object, so the gate was structurally incapable
+of blocking anything — it lost a race it was never told it was in. *Control:* an inline
+`- analysis:` step after the first pause. An inline step blocks the rollout until it
+concludes and therefore cannot be outrun. Background analysis is retained only as a
+supplement.
+
+**34. A NetworkPolicy made the gate blind, and blindness read as health.** The `prometheus`
+policy admitted Grafana only. The Argo Rollouts controller lives in its own namespace, so
+its queries timed out: `context deadline exceeded`. Combined with row 32 this produced a
+gate that could neither reach its data source nor object to the absence of data.
+*Control:* an explicit ingress rule for the `argo-rollouts` namespace on 9090. Related trap:
+a `kubectl port-forward` is proxied by the API server and arrives from the node, so it
+**bypasses** ingress policy entirely — a working port-forward proves nothing about
+in-cluster reachability, and was the reason this took so long to find.
+
+**35. `status.abort` latches, and the recovery path is not the obvious one.** After an abort
+Argo sets `status.abort: true` and refuses to roll forward. Pushing a corrected spec does
+nothing; `kubectl argo rollouts retry` was not sufficient. The corrected manifest sat in the
+API server while the broken ReplicaSet served 100% 5xx for roughly fifteen minutes. The
+trap compounds: because analysis measures the whole Service rather than only canary pods
+(there is no traffic-routing provider in this tier, so no label distinguishes them), the
+aggregate error rate was dominated by the broken *stable* pods — and the healthy replacement
+failed a gate that was measuring the very thing it would have fixed. *Control:* `restore()`
+in the drill now patches `status.abort=false, promoteFull=true` through the status
+subresource and waits for `Healthy`, and the drill asserts the rollout is `Healthy` before
+it starts. *Gap:* the catch-22 itself is not fixed in this tier and cannot be — it needs a
+traffic provider that labels canary traffic separately. Production values assume one.
+
+**36. A rate() window at t=0 of a deploy describes the previous deploy.** The first
+measurement fired immediately, and its `rate(...[2m])` lookback straddled the errors from
+the deploy being replaced. With `failureLimit: 0` this aborted known-good builds — the gate
+was accurate about a question nobody asked. *Control:* `initialDelay >= lookback`, made
+configurable per environment (dev `1m`, prod `2m`), and the drill now starts steady traffic
+**before** mutating the rollout, with a 90 s warm-up.
+
+**37. Spring Boot publishes no histogram buckets by default, so a p95 gate is silently
+empty forever.** `histogram_quantile()` over `http_server_requests_seconds_bucket` looks
+entirely reasonable and had never once returned a value, because the metric does not exist
+unless `management.metrics.distribution.percentiles-histogram` is enabled. Enabling it
+exposed a second trap: setting only `maximum-expected-value` throws
+`maximumExpectedValue must be >= minimumExpectedValue` **per request, from inside the
+metrics filter** — the service starts, passes both probes, and then 500s every call, so the
+misconfiguration presents as an application bug. *Control:* all five services set the
+histogram flag and **both** bounds; the buckets are now confirmed present (528 series for
+the gateway alone).
+
+**38. In this tier the emulator is the load ceiling, not the application.** At 30 rps the
+application was comfortable — 8385 requests, zero failures, timeline p95 21 ms, HPA scaling
+2 → 3 → 5. LocalStack was not: it was `OOMKilled` at its 1 Gi limit, and because its state
+is an `emptyDir` plus an in-process index, the restart destroyed every DynamoDB table
+silently. The services then answered `ResourceNotFoundException`, the aggregate error rate
+hit 90%, and the canary aborted — a failure that is indistinguishable, from the gate's point
+of view, from a bad build. *Control:* the limit is raised to 3 Gi and the cause is recorded
+here, because the presenting symptom (a control run that fails its own gate) points at the
+rollout and not at the data store. *Gap:* real DynamoDB has no such ceiling; any capacity
+number measured in L or S is a statement about the laptop, not about the system. Two further
+approximations belong with it: `setWeight` is interpreted as a replica count rather than a
+traffic share without a mesh, so a "20% canary" is 20% of pods and only approximately 20% of
+requests; and the load generator, Kubernetes, and the emulated AWS control plane all share
+one machine, so they contend for the very CPU the measurement is about.
+
+**39. Six independent defects, one failure mode.** Rows 32–37 were found in a single
+afternoon by one script. Every one of them made the canary gate fail **open**: a wrong label,
+a terminated background run, a blocked NetworkPolicy, an empty numerator, a misaligned
+lookback window, and a metric that was never published. Each, alone, would have promoted a
+broken build while reporting success — and the CI pipeline, the Helm lint, the unit tests and
+the smoke test were green throughout. *Control:* `scripts/rollback-drill.sh`, which deploys a
+deliberately broken build and **asserts that the gate rejects it**. A control that has never
+been observed rejecting anything is a hypothesis. The corresponding control run
+(`--healthy`) matters just as much, because a gate that rejects everything is equally
+useless and looks identical in a one-sided test.
+
+---
+
 ## Maintenance
 
 This register is only worth having if it stays true.

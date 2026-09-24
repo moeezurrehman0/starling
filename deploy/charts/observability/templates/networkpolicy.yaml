@@ -40,6 +40,18 @@ spec:
               app.kubernetes.io/name: grafana
       ports:
         - {port: 9090, protocol: TCP}
+    # The Argo Rollouts controller queries Prometheus to decide whether a canary
+    # is healthy. Without this rule the query times out, and Argo does not treat
+    # an unreachable metrics provider as a reason to hold: measurements error,
+    # the run is scored, and a broken build can be promoted having never been
+    # measured. The canary gate is only as trustworthy as this rule.
+    # Found by scripts/rollback-drill.sh -- see docs/16-gap-register.md #34.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argo-rollouts
+      ports:
+        - {port: 9090, protocol: TCP}
   egress:
     - to:
         - namespaceSelector:
