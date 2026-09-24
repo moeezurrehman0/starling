@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S58`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S59`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S58`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S59`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -961,6 +961,49 @@ condition for revisiting, and `eslint-config-next` has been moved into the `next
 the next release of that framework arrives as one pull request. What does not generalise
 is the grouping fix — it works because this coupling is known. An unknown one still
 arrives as two PRs that each fail for reasons that do not mention each other.
+
+**S59. The release automation kept half its state in the repository and half outside it,
+and only one half survived.** release-please decides what to do by comparing two things:
+`.github/.release-please-manifest.json`, which is a tracked file, and the newest GitHub
+release, which is not. Recreating the repository (S55) carried the first across and
+dropped the second. The result was a manifest asserting that `0.2.0` had been released
+against a repository with no tags at all, so merging the release pull request produced
+`✔ No latest release found for path: ., component: , but a previous version (0.2.0) was
+specified in the manifest` followed by `⚠ There are untagged, merged release PRs
+outstanding - aborting`. The refusal is correct — the tool cannot tell a lost tag from a
+release in progress, and guessing would either double-tag or skip a version.
+
+What makes this worth recording is not the desync but how it presented. The workflow
+**exited zero**. A green Release run, a merged release pull request, an updated
+`CHANGELOG.md`, and a bumped manifest all appeared, and no version existed. Every signal
+that a release had happened was produced by the steps *before* the one that does the
+release, and the one that matters left only a warning in a log nobody reads on a green
+run. Re-running it changed nothing, because the aborting condition is a state, not a
+transient.
+
+Recovery was to supply the missing half: create the `v0.2.0` release at the release
+commit with notes taken from the changelog section the tool had already written, and move
+the pull request's `autorelease: pending` label to `autorelease: tagged` so the
+bookkeeping agrees. The next run then reported `Collecting commits since all latest
+releases` and `No commits for path: ., skipping` — the correct no-op, which is the only
+evidence that the loop is closed.
+
+*Gap, now closed:* the Release workflow now asserts its own bookkeeping after the action
+runs. It fails if any merged pull request still carries `autorelease: pending`, which is
+precisely the "cut but never tagged" state and is detectable whether or not any release
+exists, and it fails if the manifest version and the newest release tag disagree. Writing
+it surfaced a second trap worth more than the check itself: the obvious implementation,
+`gh pr list --state merged --label 'autorelease: pending'`, returns zero *while the label
+is attached*, because passing `--label` routes the query through the search index, which
+lags. Tested against the real repository in both directions, it never fired. The label is
+therefore filtered locally from the plain listing. A check that cannot fail is worse than
+no check, because it also removes the suspicion that would have led someone to look.
+
+What does not generalise is the fix. Any tool splitting its state between version control
+and a hosting provider will desync the moment the provider side is rebuilt, and restoring
+a repository from a git bundle restores exactly the half that was never the problem. The
+assertion here knows the shape of release-please's bookkeeping; it says nothing about the
+next tool that makes the same split.
 
 ---
 
