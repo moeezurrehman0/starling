@@ -285,5 +285,29 @@ for f in README.md AGENTS.md docs/*.md docs/runbooks/*.md docs/adr/*.md; do
 done
 [ "${dead}" -eq 0 ] && pass "no dead relative links in README, AGENTS.md, docs/, runbooks or ADRs"
 
+# ---------------------------------------------------------------------------
+head_ "every 'make <target>' named in the docs exists in the Makefile"
+
+# Same failure as a dead link, one level more embarrassing: the README's
+# getting-started section is the first thing a reader will actually type, and a
+# target that was renamed or never written fails with a bare "No rule to make
+# target", which reads like the reader's mistake rather than ours.
+bad_make=0
+targets="$(grep -o '^[a-z][a-z0-9-]*:' Makefile | tr -d ':' | sort -u | tr '\n' ' ')"
+# Only backticked (`make x`) or line-leading occurrences. Bare prose matches
+# "make it clear" and "make sure", and a check that cries wolf on English is a
+# check that gets its whole section skipped -- gap S40, in miniature.
+cited="$( { grep -ho '`make [a-z][a-z0-9-]*' README.md AGENTS.md docs/*.md docs/runbooks/*.md 2>/dev/null |
+             sed 's/^`make //'
+           grep -ho '^make [a-z][a-z0-9-]*' README.md AGENTS.md docs/*.md docs/runbooks/*.md 2>/dev/null |
+             sed 's/^make //'; } | sort -u)"
+for t in ${cited}; do
+  case " ${targets} " in
+    *" ${t} "*) ;;
+    *) fail "docs reference 'make ${t}', which is not a Makefile target"; bad_make=$((bad_make + 1)) ;;
+  esac
+done
+[ "${bad_make}" -eq 0 ] && pass "every documented make target exists"
+
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [ "${FAILED}" -eq 0 ]

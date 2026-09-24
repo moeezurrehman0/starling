@@ -20,7 +20,7 @@ Every change targets one or more of:
 | Tier | Meaning | Agents may run things here |
 |------|---------|---------------------------|
 | **L** | local — docker compose, kind | yes, freely |
-| **S** | sandbox — KodeKloud EKS, 180-minute sessions | **no** — prepare the command, hand it over |
+| **S** | sandbox — KodeKloud EKS, 180-minute sessions | **no** — prepare the command, hand it over. `make sandbox-plan` and `make sandbox-selftest` are the dry-run and offline equivalents, and are always allowed |
 | **P** | production — written, never applied | validate only |
 
 See [ADR-0009](docs/adr/0009-three-tier-environment-model.md).
@@ -32,6 +32,7 @@ See [ADR-0009](docs/adr/0009-three-tier-environment-model.md).
 - `./gradlew` anything — build, test, `spotlessApply`, coverage
 - `docker compose` and `kind` against the local tier
 - `terraform fmt`, `validate`, `test`, `plan`, `tflint`, `checkov`
+- any `*-selftest.sh`, `make sandbox-plan`, `make gap-verify`, `make diagrams` — all offline
 - reading, searching and editing files; opening pull requests
 
 **Never, under any circumstances:**

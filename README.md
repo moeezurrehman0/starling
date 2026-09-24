@@ -33,6 +33,51 @@ this repo that proves each production path.** It is the most useful document her
 
 ---
 
+## Getting started
+
+Nothing below needs an AWS account. The local tier is the dev loop and where all CI runs.
+
+```bash
+make up-app          # the whole product on docker compose — six services + LocalStack
+make wait            # block until it answers, then open http://localhost:3000
+make check           # format, build, unit tests, coverage gate
+```
+
+Kubernetes, locally, with the same charts the sandbox uses:
+
+```bash
+make kind-up         # 3-node kind cluster with Calico and ArgoCD
+make kind-deploy     # build, load and install every chart
+make load-test       # k6 through the product flow, driving the HPA
+make rollback-drill  # ship a broken canary; Argo Rollouts must reject it
+```
+
+Everything that guards the repo, offline:
+
+```bash
+make gap-verify        # every citation and artefact the gap register names
+make helm-lint         # render and schema-check every chart for every environment
+make tf-validate       # fmt, validate, tflint, checkov on both Terraform roots
+make tf-test           # terraform test with mocked providers — the Tier P assertions
+make aiops-selftest    # the risk analyser, two-sided, no model or network
+make sandbox-selftest  # the 180-minute lifecycle against stub AWS binaries
+make diagrams          # every Mermaid diagram must still parse
+```
+
+The sandbox, which **does** touch AWS and is driven from a laptop with playground
+session credentials — see [`docs/08-session-runbook.md`](docs/08-session-runbook.md):
+
+```bash
+make sandbox-plan    # dry run: prints every command, creates nothing
+make sandbox-up      # provision, bootstrap and deploy — one idempotent command
+make sandbox-status  # elapsed time against the 180-minute budget, plus health
+make sandbox-down    # destroy, then ask AWS directly what survived
+```
+
+`make help` lists every target.
+
+---
+
 ## Documentation
 
 | Doc | Contents |
