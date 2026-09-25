@@ -170,3 +170,35 @@ jobs:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.cdx.json
           retention-days: 90
+
+  # The digest read-back above verifies nothing in the case that caused S60. It runs
+  # inside the matrix job, and a job that never ran cannot fail its own assertion --
+  # so a service dropped by the path filter still publishes nothing and still reports
+  # success. This job is outside the matrix and outside the path filter, so it is the
+  # one thing here that a skip cannot silence. See docs/16-gap-register.md S61.
+  verify:
+    name: Verify the matrix published what it selected
+    needs: [changes, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reading a public package needs no token, but these are only public by a
+      # setting someone could change; logging in makes the check independent of it.
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert every selected service reached the registry
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+          MATRIX_RESULT: ${{ needs.publish.result }}
+          IMAGE_BASE: ${{ env.REGISTRY }}/${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: ./scripts/publish-verify.sh

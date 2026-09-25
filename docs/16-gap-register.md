@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S60`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S62`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S60`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S62`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1044,7 +1044,58 @@ accepted and then ignored by the buildx in use, which prints its default block i
 the comparison would have run against text that was never a digest. It parses the field
 and rejects anything not shaped like one. *Residual gap:* this proves a tag resolves, not
 that the matrix ran — a filtered-out service still publishes nothing and still reports
-success, and that remains indistinguishable from the outside.
+success, and that remains indistinguishable from the outside. **S61 closes that.**
+
+**S61. A check that lives inside the thing it checks cannot report that the thing did
+not happen.** The digest read-back S60 added is a good check in the wrong place. It runs
+as a step of the matrix job, so it verifies the push whenever the push occurs — and says
+exactly nothing in the one case that caused S60, because a job that the path filter never
+created cannot fail its own assertion. The residual gap recorded above was therefore not
+a detail left for later; it was the whole of the original defect, still open, behind a
+control that looked like it had closed it.
+
+The general form is worth stating because it is easy to re-commit: **evidence that a
+process ran cannot be produced by that process.** A skipped job, a cancelled job and a
+job that never existed all emit no output, and no amount of rigour inside the job
+distinguishes them from a successful one.
+
+*Control:* `scripts/publish-verify.sh`, called from a `verify` job in
+`.github/workflows/publish.yml` that is `needs: [changes, publish]` with `if: always()`
+— outside the matrix and outside the path filter, so a skip cannot silence it. It
+asserts two things the matrix cannot assert about itself: that a non-empty selection
+produced a `success` rather than a `skipped` or `cancelled` result, and that every
+selected service's tag independently resolves in the registry at that commit. An empty
+selection is still legitimate, but it is now stated rather than passed in silence,
+because "nothing to do" and "did nothing" being indistinguishable is precisely what S60
+was. Two-sided self-test: `scripts/publish-verify-selftest.sh`, 11 cases, 8 of them in
+the failing direction.
+
+**S62. Consistency is not correctness: the assertion S59 produced is satisfied forever by
+a repository that never releases.** The bookkeeping check written after S59 compares the
+tracked manifest against the newest GitHub release and fails when they diverge. That is
+a real invariant. It is also, on its own, no defence against S59, and the reason is a
+single branch: when no release exists there is nothing to compare against, so the check
+prints a reassuring line and exits 0. A release-please that silently never releases
+produces no releases, so it is never contradicted.
+
+This was verified rather than reasoned about, because the previous entry in this register
+is about a diagnosis that fit every symptom and was wrong. The prior inline assertion was
+reconstructed verbatim and run against a fixture reproducing S59 — manifest bumped to
+`0.3.0`, no release in existence. It exited **0**. The replacement exits **1** on the same
+fixture.
+
+*Control:* `scripts/release-verify.sh`, which keeps both consistency assertions and adds
+a progress assertion that doing nothing cannot satisfy — if the pushed commit modified
+`.github/.release-please-manifest.json` then a release was cut, and a release tagged
+`v<manifest>` must now exist and be visible to `gh release view`. The manifest file is
+the anchor rather than the commit message because the message is a configurable string
+while the manifest bump *is* the release. As in S61, the action's own
+`releases_created` output is treated as a claim and checked against GitHub, on the
+principle that the step which says it did the work is not a witness to it. This requires
+`fetch-depth: 2`; at the default depth of 1 the question "did this commit bump the
+manifest" is unanswerable, and would answer "no" — the direction that passes. Two-sided
+self-test: `scripts/release-verify-selftest.sh`, 9 cases, 6 of them in the failing
+direction, including S59 itself.
 
 ---
 
