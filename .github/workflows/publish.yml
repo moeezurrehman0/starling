@@ -112,25 +112,7 @@ jobs:
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:sha-${{ github.sha }}
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: |
-          set -euo pipefail
-          [ -n "$DIGEST" ] || { echo "::error::push step produced no digest"; exit 1; }
-          # Parsed out of the human output on purpose. `--format
-          # '{{.Manifest.Digest}}'` is accepted and then ignored by older buildx,
-          # which prints the default block instead -- tested, and it would have
-          # made this comparison pass against a string that was never a digest.
-          remote=$(docker buildx imagetools inspect "$IMAGE" |
-            awk '/^Digest:/{print $2; exit}')
-          echo "pushed:   $DIGEST"
-          echo "registry: $remote"
-          case "$remote" in
-            sha256:*) ;;
-            *) echo "::error::could not read a digest for $IMAGE"; exit 1 ;;
-          esac
-          [ "$remote" = "$DIGEST" ] || {
-            echo "::error::$IMAGE resolves to $remote, not the digest just pushed"
-            exit 1
-          }
+        run: ./scripts/image-digest-verify.sh
 
       - name: SBOM (CycloneDX)
         uses: anchore/sbom-action@v0

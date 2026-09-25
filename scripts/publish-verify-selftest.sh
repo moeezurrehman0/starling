@@ -173,6 +173,90 @@ check "an unreachable registry is never called success" 1 "absence of evidence" 
 check "the underlying registry error is surfaced, not swallowed" 1 "i/o timeout" \
   SERVICES='["unreachable-service"]' MATRIX_RESULT=success
 
+echo "-- scripts/image-digest-verify.sh, the same check inside the matrix job --"
+
+# Same stub registry, different entry point. This one compares against the
+# digest the push step reported.
+D1=sha256:1111111111111111111111111111111111111111111111111111111111111111
+D3=sha256:3333333333333333333333333333333333333333333333333333333333333333
+
+checkd() {
+  local name="$1" want_rc="$2" want_text="$3"; shift 3
+  local out rc=0
+  out=$(env "$@" ./scripts/image-digest-verify.sh 2>&1) || rc=$?
+  if [ "$rc" -ne "$want_rc" ]; then
+    printf 'FAIL  %s: expected exit %s, got %s\n%s\n' \
+      "$name" "$want_rc" "$rc" "$(sed 's/^/        /' <<<"$out")"
+    fail=$((fail + 1)); return
+  fi
+  if [ -n "$want_text" ] && ! grep -qF "$want_text" <<<"$out"; then
+    printf 'FAIL  %s: exit %s was right but output lacked %q\n%s\n' \
+      "$name" "$rc" "$want_text" "$(sed 's/^/        /' <<<"$out")"
+    fail=$((fail + 1)); return
+  fi
+  printf 'ok    %s\n' "$name"
+  pass=$((pass + 1))
+}
+
+checkd "the registry agrees with the push step" 0 "Registry agrees" \
+  IMAGE="${BASE}/gateway:sha-${SHA}" DIGEST="$D1"
+
+checkd "the registry resolves to a different digest than was pushed" 1 "not the digest just pushed" \
+  IMAGE="${BASE}/gateway:sha-${SHA}" DIGEST="$D3"
+
+checkd "the push step reported no digest at all" 1 "DIGEST" \
+  IMAGE="${BASE}/gateway:sha-${SHA}" DIGEST=""
+
+checkd "the image is genuinely absent" 1 "does not resolve" \
+  IMAGE="${BASE}/tweet-service:sha-${SHA}" DIGEST="$D1"
+
+checkd "inspect succeeds but prints no digest" 1 "does not resolve" \
+  IMAGE="${BASE}/no-digest-service:sha-${SHA}" DIGEST="$D1"
+
+checkd "an unreachable registry is not reported as a failed push" 1 "absence of evidence" \
+  IMAGE="${BASE}/unreachable-service:sha-${SHA}" DIGEST="$D1"
+
+# The regression this script was extracted to fix.
+rm -f "${STUB_COUNTER}"
+checkd "a transient 404 seconds after the push is retried, not fatal" 0 "Registry agrees" \
+  IMAGE="${BASE}/flaky-service:sha-${SHA}" DIGEST="$D3"
+
+echo "-- proof the inline version it replaced could not survive that --"
+
+# Not an assertion that the old step was inadequate -- a reconstruction of it,
+# run against the same stub. It is the code that was in publish.yml, verbatim
+# apart from being in a file.
+cat > "${STUB}/old-inline.sh" <<'OLD'
+set -euo pipefail
+[ -n "$DIGEST" ] || { echo "::error::push step produced no digest"; exit 1; }
+remote=$(docker buildx imagetools inspect "$IMAGE" |
+  awk '/^Digest:/{print $2; exit}')
+echo "pushed:   $DIGEST"
+echo "registry: $remote"
+case "$remote" in
+  sha256:*) ;;
+  *) echo "::error::could not read a digest for $IMAGE"; exit 1 ;;
+esac
+[ "$remote" = "$DIGEST" ] || {
+  echo "::error::$IMAGE resolves to $remote, not the digest just pushed"
+  exit 1
+}
+OLD
+
+rm -f "${STUB_COUNTER}"
+old_rc=0
+IMAGE="${BASE}/flaky-service:sha-${SHA}" DIGEST="$D3" \
+  bash "${STUB}/old-inline.sh" >/dev/null 2>&1 || old_rc=$?
+
+if [ "$old_rc" -ne 0 ]; then
+  printf 'ok    the old inline step fails on a transient 404 (exit %s)\n' "$old_rc"
+  pass=$((pass + 1))
+else
+  printf 'FAIL  the old inline step passed the case that broke it in CI;\n'
+  printf '      the reconstruction is wrong, so the comparison proves nothing\n'
+  fail=$((fail + 1))
+fi
+
 echo
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

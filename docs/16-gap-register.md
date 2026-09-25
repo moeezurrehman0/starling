@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S63`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S64`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S63`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S64`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1137,7 +1137,43 @@ success is not evidence of success. But it fails under its own name, so nobody i
 debug a publish that worked. Verified the same way S62 was, rather than argued: the prior
 implementation was run against a stub that 404s twice and then resolves, and it **exits
 1**; the replacement **exits 0**. That case is now a permanent regression test.
-Self-test: 15 cases, 12 in the failing direction.
+
+**S64. The same defect existed twice; S63 fixed one copy, and the other one fired on the
+very next commit.** The S63 fix landed in `scripts/publish-verify.sh` and was verified
+against a stub. It was not applied to the per-service read-back *inside* the matrix job,
+eight lines of inline `run:` in `publish.yml` that asked the registry the same question in
+the same defective way. One commit later, that copy failed: `fanout-worker` pushed
+`sha256:32657efa` at 08:49:17, the inline step asked for it at 08:49:19 and died with exit
+255, and the GHCR API confirms the image was there the whole time carrying exactly the
+digest that had just been pushed. A two-second-old tag, reported as a failed publish.
+
+The inline version was worse than the one S63 fixed, in a way that is worth naming because
+it is invisible on reading. It ran under `set -euo pipefail` with the registry read in a
+command substitution:
+
+    remote=$(docker buildx imagetools inspect "$IMAGE" | awk ...)
+
+so a failed read killed the step *at that line*, with the client's exit code and no
+message. The careful `case` below it, and the two explanatory `::error::` strings it would
+have printed, were unreachable in the only circumstance that produced them. The code that
+existed to explain the failure could not run during the failure.
+
+The honest finding here is not about registries. It is that S63 was diagnosed correctly,
+fixed correctly, tested two-sidedly — and still left the bug in production, because the
+question asked was "where is the bug" rather than "where else is this code". A defect
+found in one of two copies of a check is a defect found in both; fixing one and shipping
+is a fix that the next commit gets to re-teach.
+
+*Control:* there is now one implementation. `inspect_digest()` moved to
+`scripts/registry-lib.sh`, sourced by both `scripts/publish-verify.sh` and the new
+`scripts/image-digest-verify.sh`, which replaces the inline step entirely — the workflow
+line is now `run: ./scripts/image-digest-verify.sh`, which also brings it inside
+shellcheck's reach, where inline `run:` blocks are not. A mismatch is still an immediate
+hard failure with no retry, because a registry that answers with the wrong digest has
+answered. Verified as S62 and S63 were, by reconstruction rather than assertion: the
+replaced inline step is reproduced verbatim in the self-test and run against a stub that
+404s twice then resolves, where it **exits 1** while the replacement **exits 0**.
+Self-test: 23 cases, 18 in the failing direction, covering both entry points.
 
 ---
 
