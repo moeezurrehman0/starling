@@ -42,11 +42,26 @@ spec:
 # export fails and the span for the very first request -- the one most likely to
 # be inspected during a demo -- is lost.
 #
-# Sync is never automated for this Application regardless of .Values.autoSync.
-# selfHeal on a monitoring stack means that silencing an alert or widening a
-# scrape during an incident is reverted underneath you, minutes later, with no
-# notification. Drift here is a smaller problem than losing manual control of
-# the tool you are using to diagnose the outage.
+# Sync is automated but selfHeal is deliberately off, and the distinction is the
+# whole point. selfHeal reverts *cluster-side* drift, which on a monitoring stack
+# means that silencing an alert or widening a scrape during an incident is undone
+# underneath you, minutes later, with no notification. Losing manual control of the
+# tool you are diagnosing an outage with is a worse problem than drift.
+#
+# What this Application had before was no `automated` block at all, which achieved
+# that and one thing more that nobody intended: it never performed the *initial*
+# sync either. Observability was `OutOfSync/Missing` from the moment the cluster
+# came up and stayed that way, because nothing else in this repository syncs it --
+# not sandbox-up.sh, not the runbook, not the Makefile. The comment argued against
+# self-healing and the code also switched off deploying. See S72; the sync-wave of
+# -2 directly above is the clearest evidence of the intent, since ordering a stack
+# first only means something if it is going to be installed at all.
+#
+# `automated` with `selfHeal: false` is exactly the documented behaviour that was
+# wanted: ArgoCD syncs when a new git revision changes the desired state, and does
+# not revert changes made directly against the cluster. prune is off for the same
+# reason -- an incident responder who deletes a noisy rule should not have it
+# recreated, or, worse, have something else pruned.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -73,6 +88,9 @@ spec:
     # namespace, and CreateNamespace below applies to both.
     namespace: observability
   syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

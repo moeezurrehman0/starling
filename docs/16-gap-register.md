@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S68`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S74`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S68`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S74`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1309,6 +1309,268 @@ unmerged rollback waiting to be clicked.
 a workflow job can perform the write it is built around; GitHub evaluates ruleset permissions
 only at push time, and no offline gate in this repository can see them. The honest control
 here is the one that caught it: the job ran, and someone read the log.
+
+---
+
+**S69. The registry held the tag, the digest matched, the signature verified — and the
+image could not run on any machine in the room.** With S65–S68 fixed, the GitOps path
+finally ran end to end: publish pushed six images, the read-back gate confirmed every tag
+resolved to the digest just pushed, the bump job opened a pull request, ArgoCD synced it.
+Every application then sat `Synced` and `Degraded` for three and a half hours with its pods
+in `ImagePullBackOff`:
+
+    Failed to pull image "ghcr.io/.../tweet-service:sha-346eabcd...":
+      no match for platform in manifest: not found
+
+`publish.yml` sets no `platforms:` key on either `docker/build-push-action` step, so buildx
+defaults to the platform of the runner, and GitHub's `ubuntu-latest` is `linux/amd64`. Every
+image this repository has ever published is amd64-only. The kind cluster runs on Apple
+Silicon and its three nodes are `arm64`. The two facts had never been put next to each
+other.
+
+What makes this worth a number is not the missing key — that is a one-line omission anyone
+could make. It is that the gate written specifically to catch a bad publish could not see
+it, and could never have seen it. `image-digest-verify.sh` exists because of S60 and S63,
+and it is a careful piece of work: it retries, it distinguishes absent from undetermined, it
+refuses to call a failed read a failed push. It asks the registry one question — *does this
+tag resolve to the digest we pushed?* — and the honest answer was yes. A manifest that
+contains exactly one platform, and the wrong one, resolves perfectly. So does a signature
+over it. Three independent controls agreed the publish was good, and they were all telling
+the truth about something that was not the thing that mattered.
+
+The verification I reported was the same shape. Asked whether the pinned images existed, I
+confirmed the tags resolved in GHCR and said so. That was true and it was not evidence that
+anything could run: resolving a tag is not the same as having a runnable platform, and I did
+not distinguish them until kubelet did it for me. This is the sixth instance in one session
+of a check aimed one level below its defect — S60/S61 (a skipped matrix job is green),
+S63 (absent read as unanswerable), S64 (one of two copies fixed), S67 (`sandbox-plan` prints
+only `run`-wrapped stages), S68 (the script tested, the job around it not), and now this.
+
+The consequence is narrow and it is expensive in exactly the wrong place. Tier S is
+unaffected — EKS nodes are amd64 and would have pulled these images without complaint. What
+broke is the *rehearsal*: the ArgoCD path could not be exercised on the only hardware
+available before a one-shot 180-minute sandbox session that depends on it working. A defect
+that is invisible in production and fatal in the practice run is still a defect, because the
+practice run is what buys the confidence.
+
+*Control:* `publish.yml` builds each image on both `ubuntu-latest` and `ubuntu-24.04-arm` —
+native runners, free for public repositories, rather than QEMU emulation. Emulation was
+considered and rejected on measurement, not taste: both Dockerfiles do substantial work in
+`RUN` layers — `jlink` plus a full Spring context refresh for the CDS archive, and `npm ci`
+plus a Next.js build — and that is the worst possible shape for a foreign-architecture
+interpreter. Each architecture is pushed by digest, the two are joined into a manifest list
+with `docker buildx imagetools create`, and the list digest is what gets verified and
+signed. `image-digest-verify.sh` needs no change: `imagetools inspect` reports the list
+digest under the same `Digest:` line it already parses.
+
+*Gap:* narrowed, not closed. `scripts/manifest-merge.sh` now pins the expected platform set
+in the pipeline and reads the finished list back to assert it, with a two-sided self-test
+that drives it against a stub registry returning an amd64-only list — the exact state this
+entry describes. What that does *not* do is know what platforms the consumers need. The
+expected set is a constant in the workflow, and Tier L is arm64 by accident of hardware
+while Tier S is amd64 by accident of instance type; neither is written down anywhere the
+publish can read. If a tier moves to an architecture nobody updates the constant for, the
+gate will assert the old set and pass. That is a smaller hole than having no assertion at
+all, and it is still a hole.
+
+---
+
+**S70. The Helm path created a Secret. The GitOps path assumed someone already had.** With
+the images finally pullable, the pods got one step further and stopped again:
+
+    CreateContainerConfigError: secret "starling-secrets" not found
+
+`starling-secrets` is created in exactly one place in this repository —
+`scripts/kind-deploy.sh`, the imperative Tier-L installer. Nothing in `deploy/`, nothing in
+`infra/terraform`, and critically nothing in `scripts/sandbox-up.sh` creates it. Every
+service mounts it through `envFrom` with `optional: false`, which is the right setting: a
+service that silently starts without its credentials and fails on the first database call
+is worse than one that refuses to start. So the container never starts, in any environment
+provisioned by the GitOps path.
+
+This is a Tier-S blocker and not a Tier-L one, which is the wrong way round from how it was
+found. Tier L works because `kind-deploy.sh` runs first and leaves the Secret behind — the
+rehearsal cluster had been set up that way weeks earlier and the object simply persisted,
+so the GitOps path had been quietly depending on an artefact of a different install path
+for its entire existence. `sandbox-up.sh` starts from an empty EKS cluster where nothing
+has ever run `kind-deploy.sh`, so the first sync would have failed there and only there.
+
+The class is worth naming because it is not the same as the missing-key mistakes above. Two
+install paths existed, one was exercised constantly and the other almost never, and the
+rarely-exercised one had a prerequisite that the common one satisfied as a side effect. No
+gate can catch that by reading either path in isolation; the defect lives in the difference
+between them. S73 below is the identical shape, found twenty minutes later.
+
+*Control:* `sandbox-up.sh` creates `starling-secrets` before the ArgoCD stage.
+`SEARCH_DB_PASSWORD` is read from the RDS credentials Terraform already emits rather than
+being a literal, and the AWS keys are empty because Tier S authenticates through IRSA — the
+Secret exists to satisfy `envFrom`, not to carry credentials that the pod should not have.
+
+*Gap:* nothing asserts that the two install paths leave a cluster in the same state. The
+honest control would be a manifest of objects each path is expected to create, diffed; that
+is not written, and until it is, the next prerequisite that only one path satisfies will be
+found the same way this one was.
+
+---
+
+**S71. ArgoCD reported `Succeeded — successfully synced`. It had synced nothing.** The
+gateway had no Deployment. It has a `Rollout` instead, because it is the only service with
+`rollout.enabled`, and that Rollout was still running `ghcr.io/starling/gateway:sha-0000000`
+— the placeholder tag from before S65. The Application was green. The sync message said the
+operation succeeded. The workload was five fixes out of date.
+
+The cause is one absent field. The chart's container `ports` entry set `containerPort` and
+`name` but not `protocol`, and ArgoCD's structured-merge diff rejected the resource:
+
+    associative list with keys has an element that omits key field "protocol"
+
+`protocol` is a key field of the `ports` associative list. Omitting it is harmless for a
+built-in Deployment because the API server defaults it to `TCP` before anything reads the
+object back, so the live and desired states agree. It is fatal for a CRD, because nothing
+defaults it — the Rollout schema is whatever Argo Rollouts registered, and the field simply
+stays absent, so the merge cannot align the two lists and the comparison errors out.
+
+I got the shape of this wrong first and it is worth recording why. My initial reading was
+that every one of the seven applications would fail the same way on a fresh cluster, since
+they all render the same chart. That would have made this a much larger finding. A
+server-side-apply dry-run into a throwaway namespace disproved it: the Deployment-rendering
+services applied cleanly. The asymmetry is entirely between built-in types and CRDs, and I
+would have reported a defect five times bigger than the real one had I not tested the
+claim.
+
+What earns this a number is the reporting, not the field. A `ComparisonError` should not
+present as a successful sync. The operation genuinely did succeed — ArgoCD applied every
+resource it was able to diff — and the one it could not diff was dropped from the set
+without changing the verdict. Every other `ports` list in this chart already names its
+protocol, so the one that was missing it was the one guarded by the weakest feedback.
+
+*Control:* `protocol: TCP` on the container port, with a comment at the site explaining the
+defaulting asymmetry, because the next person to write a `ports` block will not otherwise
+know why this one is explicit when the Kubernetes documentation says it is optional.
+
+*Gap:* nothing fails a build when an Application carries a `ComparisonError` while
+reporting a healthy sync. `deploy-verify` renders and validates the chart, and the rendered
+YAML is valid — the error only exists relative to a live CRD schema, which an offline gate
+does not have. A post-sync assertion that no Application has a non-empty `conditions` array
+would catch it in Tier L and Tier S; it is not written.
+
+---
+
+**S72. The comment explaining why the sync was not automated was right. The behaviour it
+produced was not the behaviour it described.** The observability Application had no
+`automated` block, and above it a paragraph arguing that a monitoring stack should not
+self-heal during an incident — that an operator who has just scaled Prometheus by hand to
+survive a cardinality spike should not have ArgoCD revert it ninety seconds later.
+
+That argument is correct. I first read the omission as an oversight and started writing it
+up as one, then read the comment properly and had to withdraw that. It is a deliberate,
+well-reasoned decision, and it is the kind of judgement this register exists to preserve
+rather than tidy away.
+
+The defect is narrower and it is real: the reasoning justifies disabling `selfHeal`, and
+the implementation disabled the *initial* sync as well. Those are different properties of
+the same block. Nothing anywhere then performed that initial sync — not `kind-deploy.sh`,
+not `sandbox-up.sh`, not the Makefile, not the runbook. The stack was never deployed at
+all, in any tier, by any path, and the Application sat `OutOfSync / Missing` looking exactly
+like a stack that was waiting politely for a human who had never been told to come.
+
+The consequence was not subtle once anything depended on it. The gateway canary aborted
+with:
+
+    Metric "error-rate" ... dial tcp: lookup
+      prometheus.observability.svc.cluster.local: no such host
+
+and that is four of the six demos in `docs/08-session-runbook.md` — the distributed trace,
+the canary promotion, the rollback drill and its control, and the alert reaching its
+runbook. A one-shot 180-minute session would have spent its first hour discovering that
+two thirds of its agenda could not run.
+
+*Control:* `automated: {prune: false, selfHeal: false}`. This is precisely the documented
+intent: ArgoCD syncs when a new git revision appears and does not revert cluster-side drift,
+so the operator's emergency `kubectl scale` survives and the stack still installs itself.
+`prune: false` for the same reason — a monitoring stack should not lose a PVC to a
+refactor.
+
+*Gap:* the pattern here is a comment that documents an intent the code implements only
+partly, which no linter can see. The comment was load-bearing and it was believed, by me
+among others. Nothing asserts that every Application either syncs automatically or is
+synced by something nameable.
+
+---
+
+**S73. `CreateNamespace=true` creates the destination namespace. Promtail does not live in
+the destination namespace.** With S72 fixed the observability stack came up — Grafana,
+Loki, Prometheus, Tempo, the collector, all `Running` — and the Application stayed
+`OutOfSync` forever with exactly three resources unappliable: promtail's ServiceAccount,
+ConfigMap and DaemonSet. They target `observability-agents`, and that namespace did not
+exist.
+
+The sync option does what it says. It creates the namespace named in
+`spec.destination.namespace` and no other, so a chart that addresses a second namespace has
+to declare it itself, and this one had no `kind: Namespace` template anywhere.
+`kind-deploy.sh` creates `observability-agents` imperatively before it installs the chart —
+which is why the Helm path worked, why the GitOps path did not, and why this is S70's twin
+rather than a new class. Two install paths, one prerequisite, satisfied as a side effect by
+the path that gets exercised.
+
+The effect is that no logs reach Loki, in any tier, and nothing says so in those words. The
+Application reports `OutOfSync`, which is true and unspecific, and a reader who has just
+watched five observability pods go `Running` is not inclined to read it closely.
+
+The namespace also cannot be a bare namespace, which is the part most likely to be undone
+by a later cleanup. Promtail runs as uid 0 and mounts `/var/log/pods` and
+`/var/lib/docker/containers` from the node; the restricted pod-security profile is enforced
+cluster-wide, so admission rejects every pod the DaemonSet creates. That rejection appears
+as a `FailedCreate` event on the DaemonSet and nowhere on the Application, which would go
+`Healthy` while collecting nothing — a strictly worse failure than the one it replaced,
+because it looks fixed.
+
+*Control:* a `Namespace` template in the observability chart rendering
+`.Values.agentNamespace` with `pod-security.kubernetes.io/{enforce,audit,warn}=privileged`,
+and a comment at the site recording that the exemption is scoped to this namespace on
+purpose so that Grafana does not inherit it. Verified on kind: three promtail pods,
+`Running` on all three nodes, Application `Synced / Healthy`.
+
+*Gap:* same as S70 — nothing diffs the objects the imperative path creates against the
+objects the declarative path creates. This finding is the argument for writing that.
+
+---
+
+**S74. The canary gate is correct, fails closed, and the runbook walks it into a case where
+closing is wrong.** After S72 the gateway rollout still aborted, now for a different reason.
+Both metrics returned an empty vector:
+
+    METRIC=error-rate PHASE=Failed  measurements: Failed val=[]
+
+That is the designed behaviour. `successCondition: len(result) > 0 && ...` and the
+deliberately unguarded denominator exist because of S32, where an empty result was scored
+as a pass and Argo promoted a deliberately broken canary while reporting `Successful`. A
+gate that cannot see must fail. The analysis template argues this at length and the argument
+is right.
+
+The gap is in the runbook, not the gate. Demo 5 — the rollback drill — knows this:
+`rollback-drill.sh` starts `load-test.sh steady` in the background and warms it before the
+first measurement, with a comment explaining that a cold start gives the ratio a tiny
+denominator. Demo 4, the promotion PR canary at minutes 85–110, has no such provision. The
+only load in the runbook is demo 3's `make load-test PEAK_RPS=30 DURATION=10m` at minute 65,
+which has finished well before minute 85. The canary then measures a service with no
+traffic, `rate()` over the lookback window is empty, `len(result) > 0` is false, and a
+healthy build is rejected — in front of an audience, twenty-five minutes into a
+hundred-and-eighty-minute budget that cannot be re-run.
+
+It is the inverse of every defect in the S32–S39 family. Those all made the gate fail open.
+This one makes it fail closed on a build that deserved to pass, which is safer and is still
+wrong, and it was found only because an unrelated fix let the rollout get far enough to be
+measured at all.
+
+*Control:* not yet written. Demo 4 needs the traffic demo 5 already generates; the
+mechanism exists and is not invoked. The fix is a background `load-test.sh steady` covering
+the promotion window, with the same warm-up the drill uses.
+
+*Gap:* nothing distinguishes "the canary aborted because the build is bad" from "the canary
+aborted because nobody was looking at it". Both surface as `RolloutAborted` with a failed
+metric, and the difference is an empty result set versus a populated one that breached its
+threshold. The abort message could say which; it does not.
 
 ---
 
