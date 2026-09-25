@@ -215,6 +215,13 @@ release-selftest: ## Two-sided test of the Publish and Release verification gate
 	@./scripts/publish-verify-selftest.sh
 	@./scripts/release-verify-selftest.sh
 
+.PHONY: deploy-verify
+deploy-verify: ## Assert deploy/envs/dev points at images that exist, and test the bumper — offline
+	@# The only consumer that reads these files is ArgoCD, so nothing else
+	@# notices when they are wrong. See docs/16-gap-register.md S65.
+	@./scripts/deploy-bump-tags-selftest.sh
+	@./scripts/deploy-bump-tags.sh --check
+
 # ---------------------------------------------------------------------------
 # Docs
 # ---------------------------------------------------------------------------

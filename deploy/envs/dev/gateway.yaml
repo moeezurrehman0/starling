@@ -2,8 +2,8 @@ name: gateway
 port: 8080
 
 image:
-  repository: ghcr.io/starling/gateway
-  tag: sha-0000000
+  repository: ghcr.io/moeezurrehman0/starling/gateway
+  tag: sha-7d59d03782574c4c1e77491088f5014016470a81
 
 networkPolicy:
   # The web frontend is the only in-cluster caller; the Ingress controller lives

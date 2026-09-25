@@ -95,3 +95,9 @@ docs/diagrams/*.png
 # never consulted -- the root's constraints win -- so committing one just creates
 # a second copy to forget to update.
 infra/terraform/modules/*/.terraform.lock.hcl
+
+# Sandbox session state (scripts/sandbox-lib.sh). Records the start time a
+# 180-minute budget is measured against, so it is meaningful only on the machine
+# that ran `make sandbox-up` -- and `make sandbox-plan` writes it too, which means
+# a dry run on a laptop leaves an untracked file that looks like a real session.
+.sandbox-session
