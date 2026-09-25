@@ -1363,13 +1363,15 @@ with `docker buildx imagetools create`, and the list digest is what gets verifie
 signed. `image-digest-verify.sh` needs no change: `imagetools inspect` reports the list
 digest under the same `Digest:` line it already parses.
 
-*Gap:* the control that would have caught this is still not mechanised, and it is worth
-being clear about why. Nothing in this repository asserts that a published manifest contains
-the platforms its consumers need, because "its consumers" is not a set any offline gate can
-enumerate — Tier L is arm64 by accident of hardware and Tier S is amd64 by accident of
-instance type, and neither is written down anywhere the publish workflow can read. Pinning
-the expected platform set in the workflow and asserting it after the merge step would close
-it; that is a real fix and it is not written yet.
+*Gap:* narrowed, not closed. `scripts/manifest-merge.sh` now pins the expected platform set
+in the pipeline and reads the finished list back to assert it, with a two-sided self-test
+that drives it against a stub registry returning an amd64-only list — the exact state this
+entry describes. What that does *not* do is know what platforms the consumers need. The
+expected set is a constant in the workflow, and Tier L is arm64 by accident of hardware
+while Tier S is amd64 by accident of instance type; neither is written down anywhere the
+publish can read. If a tier moves to an architecture nobody updates the constant for, the
+gate will assert the old set and pass. That is a smaller hole than having no assertion at
+all, and it is still a hole.
 
 ---
 
