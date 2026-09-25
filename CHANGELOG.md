@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/moeezurrehman0/starling/compare/v0.2.1...v0.2.2) (2026-09-25)
+
+
+### Bug fixes
+
+* **release:** drop the component that no release could ever match ([#17](https://github.com/moeezurrehman0/starling/issues/17)) ([bd71441](https://github.com/moeezurrehman0/starling/commit/bd714416cc8bd034f4332c2961b61a9d7a911723))
+
+
+### CI
+
+* close the two residual gaps where a green check proved nothing ([#19](https://github.com/moeezurrehman0/starling/issues/19)) ([1664896](https://github.com/moeezurrehman0/starling/commit/1664896544c3894545a827fa1c83cb88d81a59c7))
+
 ## [0.2.1](https://github.com/moeezurrehman0/starling/compare/v0.2.0...v0.2.1) (2026-09-24)
 
 
