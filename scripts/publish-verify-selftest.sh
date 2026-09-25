@@ -49,6 +49,26 @@ OUT
     echo "Name:      ${image}"
     echo "MediaType: application/vnd.oci.image.index.v1+json"
     exit 0;;
+  *[/]flaky-service:*)
+    # Eventually consistent: 404s twice, then resolves. This is what actually
+    # happened on the gate's first real run -- a freshly pushed image reported
+    # MISSING -- and the first version of the script had no way to survive it.
+    n=$(cat "${STUB_COUNTER}" 2>/dev/null || echo 0)
+    n=$((n + 1)); echo "$n" > "${STUB_COUNTER}"
+    if [ "$n" -le 2 ]; then
+      echo "ERROR: ${image}: not found" >&2; exit 1
+    fi
+    cat <<OUT
+Name:      ${image}
+Digest:    sha256:3333333333333333333333333333333333333333333333333333333333333333
+OUT
+    exit 0;;
+  *[/]unreachable-service:*)
+    # A transport fault, not an answer. The registry never said the image is
+    # absent; it never said anything. Reporting this as MISSING would send
+    # someone to debug a publish that worked.
+    echo "ERROR: failed to do request: dial tcp: i/o timeout" >&2
+    exit 1;;
   *)
     echo "ERROR: ${image}: not found" >&2
     exit 1;;
@@ -59,6 +79,11 @@ export PATH="${STUB}:${PATH}"
 
 BASE=ghcr.io/example/starling
 SHA=deadbeef
+
+# Retry promptly in tests; the delay is what the real gate uses against a real
+# registry, not a property worth spending suite time on.
+export INSPECT_DELAY=0
+export STUB_COUNTER="${STUB}/flaky.count"
 pass=0
 fail=0
 
@@ -111,12 +136,12 @@ check "selected services but the matrix failed" 1 "reported 'failure'" \
 check "matrix claims success for an image that does not exist" 1 "published nothing" \
   SERVICES='["tweet-service"]' MATRIX_RESULT=success
 
-check "one of several services is missing" 1 "MISSING  tweet-service" \
+check "one of several services is missing" 1 "MISSING       tweet-service" \
   SERVICES='["gateway","tweet-service"]' MATRIX_RESULT=success
 
 # inspect exits 0 and prints a plausible block containing no digest. This is the
 # shape that defeated the --format flag; a laxer parse would call this a pass.
-check "inspect succeeds but prints no digest" 1 "MISSING  no-digest-service" \
+check "inspect succeeds but prints no digest" 1 "MISSING       no-digest-service" \
   SERVICES='["no-digest-service"]' MATRIX_RESULT=success
 
 # An empty selection must not excuse a matrix that ran anyway -- that would mean
@@ -126,6 +151,27 @@ check "empty selection but the matrix ran" 1 "rather than 'skipped'" \
 
 check "SERVICES is not a JSON array" 1 "not a JSON array" \
   SERVICES='gateway' MATRIX_RESULT=success
+
+echo "-- absent vs unanswerable, the distinction the first version lacked --"
+
+# Regression test for a real false positive. On this gate's first run against
+# main, user-service was reported MISSING while the image demonstrably existed;
+# the query had failed transiently and the script could not tell the difference
+# because it had discarded stderr. It must now retry through that.
+rm -f "${STUB_COUNTER}"
+check "a transient 404 on a freshly pushed image is retried, not failed" 0 "ok            flaky-service" \
+  SERVICES='["flaky-service"]' MATRIX_RESULT=success
+
+# A query that never gets an answer must not be reported as an absent image.
+check "an unreachable registry is UNDETERMINED, not MISSING" 1 "UNDETERMINED  unreachable-service" \
+  SERVICES='["unreachable-service"]' MATRIX_RESULT=success
+
+check "an unreachable registry is never called success" 1 "absence of evidence" \
+  SERVICES='["unreachable-service"]' MATRIX_RESULT=success
+
+# The diagnostic that the first version threw away must reach the log.
+check "the underlying registry error is surfaced, not swallowed" 1 "i/o timeout" \
+  SERVICES='["unreachable-service"]' MATRIX_RESULT=success
 
 echo
 printf '%s passed, %s failed\n' "$pass" "$fail"

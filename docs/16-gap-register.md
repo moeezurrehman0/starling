@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S62`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S63`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S62`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S63`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1096,6 +1096,48 @@ principle that the step which says it did the work is not a witness to it. This 
 manifest" is unanswerable, and would answer "no" — the direction that passes. Two-sided
 self-test: `scripts/release-verify-selftest.sh`, 9 cases, 6 of them in the failing
 direction, including S59 itself.
+
+**S63. The gate written to catch a false green produced a false red on its first real
+run, because "absent" and "unanswerable" were the same branch.** S61 shipped and was
+immediately exercised twice on `main`. On the release commit it did exactly what it was
+built for, stating out loud that nothing was published rather than showing a silent tick.
+On the commit that introduced it — which touched `scripts/`, so every service rebuilt —
+it failed, reporting `MISSING user-service` while the other four resolved.
+
+The image existed. The GHCR API shows it tagged at 07:52:10; the gate asked at 07:53:02
+and got an error, not an absence. The registry had not said "no such tag"; it had failed
+to answer. And the script could not tell the difference, because it was written as
+
+    digest=$(docker buildx imagetools inspect "$image" 2>/dev/null | awk ...) || digest=""
+
+which routes a transport fault, an auth failure, a rate limit and a genuine 404 into one
+empty string, having first discarded to `/dev/null` the only evidence that distinguishes
+them. The diagnosis of the incident was therefore unavailable from the incident's own
+output.
+
+This is not a new lesson in this repository; it is an old one, mirrored. `sandbox-down`'s
+sweep is self-tested against precisely two opposite errors — reporting clean because a
+query was denied, and reporting dirty because AWS printed the literal string `None` — and
+the probe's self-test exists to assert that a denial is classified *by kind*, because a
+policy deny, a missing grant and an absent service are three findings rather than one.
+S61 was written in the same session that documented both and reproduced the failure
+anyway. Knowing a principle and applying it to new code are separate acts.
+
+The cost of the two directions is not symmetric, which is why this matters more than a
+flake. A blocking gate that cries wolf gets re-run until it is green, and a gate people
+re-run is a gate people have stopped reading — the failure mode `AGENTS.md` names when it
+says an advisory check that can block is one people learn to argue with instead of read.
+
+*Control:* `inspect_digest()` in `scripts/publish-verify.sh` now returns three outcomes
+rather than two — resolved, absent, and undetermined — retries every failure including a
+flat 404, because a registry is eventually consistent and a tag written seconds earlier
+can legitimately miss once, and prints the underlying error instead of swallowing it. An
+undetermined result still fails the gate; it must, since the absence of evidence of
+success is not evidence of success. But it fails under its own name, so nobody is sent to
+debug a publish that worked. Verified the same way S62 was, rather than argued: the prior
+implementation was run against a stub that 404s twice and then resolves, and it **exits
+1**; the replacement **exits 0**. That case is now a permanent regression test.
+Self-test: 15 cases, 12 in the failing direction.
 
 ---
 
