@@ -214,6 +214,7 @@ release-selftest: ## Two-sided test of the Publish and Release verification gate
 	@# branch is asserted in the direction where it must fail.
 	@./scripts/publish-verify-selftest.sh
 	@./scripts/release-verify-selftest.sh
+	@./scripts/manifest-merge-selftest.sh
 
 .PHONY: deploy-verify
 deploy-verify: ## Assert deploy/envs/dev points at images that exist, and test the bumper — offline
