@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3](https://github.com/moeezurrehman0/starling/compare/v0.2.2...v0.2.3) (2026-09-25)
+
+
+### Bug fixes
+
+* apply the S63 registry fix to the copy of it inside the matrix job ([#23](https://github.com/moeezurrehman0/starling/issues/23)) ([7d59d03](https://github.com/moeezurrehman0/starling/commit/7d59d03782574c4c1e77491088f5014016470a81))
+* **ci:** tell an absent image apart from an unanswerable query ([#20](https://github.com/moeezurrehman0/starling/issues/20)) ([efbaf8d](https://github.com/moeezurrehman0/starling/commit/efbaf8d2f6b1c0d1151d71cf28b7567711b62d84))
+
 ## [0.2.2](https://github.com/moeezurrehman0/starling/compare/v0.2.1...v0.2.2) (2026-09-25)
 
 
