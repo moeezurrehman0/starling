@@ -4,7 +4,7 @@ port: 8084
 
 image:
   repository: ghcr.io/moeezurrehman0/starling/fanout-worker
-  tag: sha-7d59d03782574c4c1e77491088f5014016470a81
+  tag: sha-346eabcd01551f877353c49282950a4dfeea5ec4
 
 # Single replica for the same reason as the indexer: the consumer does not
 # coordinate shard ownership between replicas, so a second pod fans every tweet

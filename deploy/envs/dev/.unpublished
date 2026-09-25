@@ -7,4 +7,3 @@
 # web has no image because it was never in the publish matrix -- docker/Dockerfile.web
 # existed and was built by nothing. The publish-web job added alongside this file
 # produces the first one, and the bump job that follows it removes this line.
-web

@@ -3,7 +3,7 @@ port: 8083
 
 image:
   repository: ghcr.io/moeezurrehman0/starling/timeline-service
-  tag: sha-7d59d03782574c4c1e77491088f5014016470a81
+  tag: sha-346eabcd01551f877353c49282950a4dfeea5ec4
 
 networkPolicy:
   allowFrom: [gateway]
