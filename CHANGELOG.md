@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.4](https://github.com/moeezurrehman0/starling/compare/v0.2.3...v0.2.4) (2026-09-25)
+
+
+### Bug fixes
+
+* have the tag-bump job open a pull request instead of pushing to main ([#26](https://github.com/moeezurrehman0/starling/issues/26)) ([346eabc](https://github.com/moeezurrehman0/starling/commit/346eabcd01551f877353c49282950a4dfeea5ec4))
+* make the GitOps path deployable before the sandbox session depends on it ([#24](https://github.com/moeezurrehman0/starling/issues/24)) ([8b8395a](https://github.com/moeezurrehman0/starling/commit/8b8395a8171dd3dab787b695afa729f904300f3e))
+
 ## [0.2.3](https://github.com/moeezurrehman0/starling/compare/v0.2.2...v0.2.3) (2026-09-25)
 
 
