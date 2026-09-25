@@ -1,0 +1,10 @@
+# Images referenced by deploy/envs/dev/ that have never been published, and so
+# have no SHA to pin. scripts/deploy-bump-tags.sh --check permits the
+# sha-0000000 placeholder for exactly the names listed here and for nothing
+# else; the bump path deletes a name from this file the first time it writes a
+# real tag for it. An empty file is the goal state.
+#
+# web has no image because it was never in the publish matrix -- docker/Dockerfile.web
+# existed and was built by nothing. The publish-web job added alongside this file
+# produces the first one, and the bump job that follows it removes this line.
+web

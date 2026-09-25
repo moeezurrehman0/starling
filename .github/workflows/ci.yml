@@ -180,6 +180,16 @@ jobs:
       - name: Release verification self-test
         run: ./scripts/release-verify-selftest.sh
 
+      # The committed contents of deploy/envs/dev are read by exactly one consumer
+      # -- ArgoCD -- and every other consumer overrides them, so nothing here had
+      # ever looked at them. They were wrong in two ways at once for a whole phase.
+      # See docs/16-gap-register.md S65.
+      - name: Deploy tag bump self-test
+        run: ./scripts/deploy-bump-tags-selftest.sh
+
+      - name: Assert the dev manifests reference images that exist
+        run: ./scripts/deploy-bump-tags.sh --check
+
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck

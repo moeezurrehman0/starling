@@ -6,7 +6,7 @@
 image:
   # Overwritten per service with the service name appended. Kept here so a
   # registry change is one edit rather than six.
-  repository: ghcr.io/starling
+  repository: ghcr.io/moeezurrehman0/starling
 
 replicaCount: 1
 

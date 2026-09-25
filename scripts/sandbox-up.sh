@@ -174,6 +174,25 @@ fi
 if should_run argocd; then
   step "ArgoCD + app-of-apps"
   run "namespace" kubectl create namespace argocd --dry-run=client -o yaml
+
+  # Resolved outside the DRY_RUN guard so that `--dry-run` fails here, on a
+  # laptop, rather than at minute 35 of a 180-minute session. ArgoCD reads
+  # manifests from a git server; it cannot read this working copy. The origin
+  # remote is HTTPS and the repository is public, so no clone credential is
+  # needed -- a private repo would need a repo secret here and does not have one.
+  REPO_URL="${REPO_URL:-$(git -C "$(dirname "$0")/.." remote get-url origin 2>/dev/null || true)}"
+  [ -n "${REPO_URL}" ] || die "no git remote and no REPO_URL -- ArgoCD would be bootstrapped against the literal string REPO_URL_PLACEHOLDER and sync nothing. Set REPO_URL."
+
+  # Only root.yaml, and only after substitution. The previous form was
+  # `kubectl apply -f deploy/argocd/`, which pointed kubectl at a Helm chart
+  # directory: Chart.yaml and values.yaml are not Kubernetes manifests, kubectl
+  # rejects them, and the command exits 1. Verified -- it does exactly that,
+  # and `|| die` then ended the session at the ArgoCD stage. It also left
+  # REPO_URL_PLACEHOLDER unsubstituted, which kind-up.sh has always handled and
+  # this script never did.
+  run "app-of-apps" kubectl apply --dry-run=client -f - \
+    <<<"$(sed "s|REPO_URL_PLACEHOLDER|${REPO_URL}|g" "$(dirname "$0")/../deploy/argocd/root.yaml")"
+
   if [ "${DRY_RUN}" != "1" ]; then
     kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
     helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1
@@ -184,7 +203,9 @@ if should_run argocd; then
       --set notifications.enabled=false \
       --set applicationSet.enabled=false \
       --wait --timeout 8m || die "ArgoCD install failed"
-    kubectl apply -f deploy/argocd/ || die "app-of-apps bootstrap failed"
+    sed "s|REPO_URL_PLACEHOLDER|${REPO_URL}|g" \
+      "$(dirname "$0")/../deploy/argocd/root.yaml" |
+      kubectl apply -f - || die "app-of-apps bootstrap failed"
   fi
   report_budget argocd
 fi

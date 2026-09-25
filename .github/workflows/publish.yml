@@ -11,8 +11,12 @@
 #           pushes to a cluster.
 #
 # The remaining handoff step from docs/02-workflow.md -- a bot commit bumping the image tag
-# in deploy/envs/dev/ -- lands in Phase 7 with the manifests it would edit. Adding it now
-# would mean granting contents:write for a directory that does not exist.
+# in deploy/envs/dev/ -- is the `bump` job at the bottom of this file. It was deferred until
+# Phase 7 brought the manifests it edits, and then it stayed deferred after they arrived:
+# the note explaining the wait outlived the thing it was waiting for. The cost of that is in
+# docs/16-gap-register.md S65 -- every dev manifest kept the chart's placeholder tag and a
+# registry namespace that does not exist, and because every other consumer overrides the
+# image reference, only ArgoCD ever read it.
 #
 # Registry note: docs/02-workflow.md specifies ECR, and that remains the target for Tier S
 # and Tier P. ECR needs an AWS account and an OIDC trust policy, which are Phase 8. GHCR is
@@ -153,6 +157,63 @@ jobs:
           path: sbom-${{ matrix.service }}.cdx.json
           retention-days: 90
 
+  # The frontend, which the JVM matrix cannot carry: it has no bootJar and a different
+  # Dockerfile. It was left out of this workflow entirely, so `deploy/envs/dev/web.yaml`
+  # referenced an image that was never built by anything -- ArgoCD had nothing to pull.
+  # Same REBUILD_ALL rule as the matrix: a change to the pipeline or to the image
+  # tooling invalidates the `web/**` filter, so it must rebuild.
+  publish-web:
+    name: Publish (web)
+    needs: changes
+    if: >-
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.docker == 'true' ||
+      needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}/web:sha-${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify the image resolves in the registry
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/web:sha-${{ github.sha }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: ./scripts/image-digest-verify.sh
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/web
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
   # The digest read-back above verifies nothing in the case that caused S60. It runs
   # inside the matrix job, and a job that never ran cannot fail its own assertion --
   # so a service dropped by the path filter still publishes nothing and still reports
@@ -184,3 +245,80 @@ jobs:
           IMAGE_BASE: ${{ env.REGISTRY }}/${{ github.repository }}
           SHA: ${{ github.sha }}
         run: ./scripts/publish-verify.sh
+
+  # The GitOps handoff: CI knows which images it just published, ArgoCD knows how to
+  # deploy what is committed, and this job is the only thing that connects them.
+  #
+  # It is the one job here with contents:write, so the blast radius is worth stating. It
+  # can write to deploy/envs/dev/ on main and nothing else -- the script rewrites a `tag:`
+  # line in a fixed directory and refuses anything it cannot map to an image it was told
+  # was published. It still has no cluster credential; ArgoCD pulls this commit, CI does
+  # not push to a cluster.
+  #
+  # No loop protection is needed, and that is by construction rather than by luck. This
+  # job only ever touches deploy/**, and deploy/** appears in none of the filters that
+  # select work here: `services` comes from services/**, and REBUILD_ALL from docker/**,
+  # scripts/** and .github/workflows/**. So the commit it makes re-runs this workflow with
+  # an empty matrix and no web build, the bump finds nothing to do, and it stops. CI does
+  # run on deploy/** -- deliberately, because a manifest change should be linted.
+  bump:
+    name: Bump dev image tags
+    needs: [changes, publish, publish-web, verify]
+    # `verify` is the gate: it fails if the matrix skipped something it selected, and
+    # bumping a tag on the strength of a job that quietly did nothing is the exact class
+    # of false green this workflow exists to prevent. The skipped() cases below are the
+    # ordinary ones -- only backend changed, or only the frontend did.
+    if: >-
+      needs.verify.result == 'success' &&
+      (needs.publish.result == 'success' || needs['publish-web'].result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Rewrite the tags for whatever was just published
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+          WEB_PUBLISHED: ${{ needs['publish-web'].result == 'success' }}
+          SHA: ${{ github.sha }}
+        run: ./scripts/deploy-bump-tags.sh
+
+      - name: Assert the result is deployable before committing it
+        run: ./scripts/deploy-bump-tags.sh --check
+
+      - name: Commit
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- deploy/envs/dev; then
+            echo "Nothing to bump: every tag already points at ${SHA}."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/envs/dev
+          git commit -m "chore: bump dev image tags to ${SHA:0:7}" \
+                     -m "Published by ${GITHUB_RUN_ID}. Generated by scripts/deploy-bump-tags.sh."
+
+          # Two publishes finishing close together race for the same ref. Rebase and retry
+          # rather than force -- losing a bump is recoverable, overwriting someone else's
+          # commit on main is not.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected; rebasing onto main and retrying (attempt ${attempt})."
+            git pull --rebase origin main
+          done
+
+          echo "::error::Could not push the tag bump after three attempts. deploy/envs/dev" \
+               "is now behind the registry, so ArgoCD is serving the previous image. Re-run" \
+               "this job once main is quiet."
+          exit 1

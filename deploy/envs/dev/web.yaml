@@ -2,7 +2,7 @@ name: web
 port: 3000
 
 image:
-  repository: ghcr.io/starling/web
+  repository: ghcr.io/moeezurrehman0/starling/web
   tag: sha-0000000
 
 # Not a Spring Boot service, so the actuator paths do not exist. Next's own

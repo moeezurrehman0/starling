@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S64`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S67`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S64`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S67`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1174,6 +1174,96 @@ answered. Verified as S62 and S63 were, by reconstruction rather than assertion:
 replaced inline step is reproduced verbatim in the self-test and run against a stub that
 404s twice then resolves, where it **exits 1** while the replacement **exits 0**.
 Self-test: 23 cases, 18 in the failing direction, covering both entry points.
+
+---
+
+**S65. Every check passed while every application pod sat in `ImagePullBackOff`.** The eight
+values files in `deploy/envs/dev/` were wrong in two independent ways at once. They named
+`ghcr.io/starling/<service>` — a GitHub organisation that does not exist, returning 404 to
+anyone who asks — and they pinned `tag: sha-0000000`, the chart's placeholder (S19), which
+is a seven-character short-SHA shape that the publish workflow has never produced; it tags
+with the full forty. So both halves of the reference were unreal, and neither had ever been
+resolved by anything.
+
+The reason nothing caught it is the part worth keeping. *Every* consumer of these files
+overrides the fields that were wrong before using them. `kind-deploy.sh` installs with
+`--set image.repository=$img --set image.tag=$TAG --set image.pullPolicy=Never`, because it
+loads locally built images into the node. `helm-validate.sh` lints and renders all 62
+chart/environment combinations with `--set image.repository=r --set image.tag=sha-1`, so
+the rendered manifests it schema-checks contain the test values, not the committed ones.
+The committed value has exactly one reader: ArgoCD. Which is to say the GitOps path — the
+mechanism Tier S exists to demonstrate, and the one no gate had ever exercised. On the
+local kind cluster eight pods had been in `ImagePullBackOff` for fifteen hours with `helm
+lint`, `helm template`, the JSON-schema check and the full CI suite all green.
+
+The root cause is a deferral that outlived its own precondition. `publish.yml` carried a
+note saying the bot commit that bumps these tags "lands in Phase 7 with the manifests it
+would edit. Adding it now would mean granting `contents:write` for a directory that does
+not exist." Phase 7 created the directory in `a3a241d`. The note stayed. A comment that
+explains why something is missing reads as a decision long after it has become an
+oversight, and it reads that way most convincingly to the person who wrote it.
+
+*Control:* three things, because one would not have been enough. The registry namespace is
+corrected and the tags pinned to `sha-7d59d03782574c4c1e77491088f5014016470a81`, a commit
+whose five images are confirmed present. The handoff step now exists — the `bump` job in
+`publish.yml`, the only job there with `contents:write`, which rewrites the tags after a
+successful publish and is bounded to `deploy/envs/dev/`; it cannot loop, because
+`deploy/**` matches none of the filters that select work in that workflow, so the commit it
+makes re-runs Publish with an empty matrix. And `scripts/deploy-bump-tags.sh --check` is a
+CI gate asserting that no placeholder tag and no dead namespace survives in what is
+committed. The one image with no publication history, `web`, is waived by name in
+`deploy/envs/dev/.unpublished` rather than by a rule, and the bump path deletes its entry
+the first time it writes a real tag — a waiver that cannot expire is a disabled test.
+Self-test: 17 cases, 8 in the failing direction, including the case a filename-based
+mapping gets wrong (`tweet-indexer` deliberately runs the `tweet-service` image, so bumping
+one must bump both).
+
+---
+
+**S66. The one command the sandbox session depends on exits 1 at minute 35, and the dry run
+said it was fine.** `scripts/sandbox-up.sh` is the whole of Tier S provisioning: one
+invocation, budgeted to minute 45 of 180, after which the six demos begin. Its final stage
+bootstraps ArgoCD with `kubectl apply -f deploy/argocd/`. That directory is a Helm chart,
+not a manifest directory. `Chart.yaml` and `values.yaml` are not Kubernetes objects, so the
+apply fails the whole directory and returns 1 — reproduced offline, exit code 1, before any
+AWS resource was involved.
+
+Underneath it was a second, independent failure that the first one hid. `deploy/argocd/root.yaml`
+contains `REPO_URL_PLACEHOLDER` twice. `kind-up.sh` substitutes it before applying;
+`sandbox-up.sh` substituted it zero times. Had the directory apply somehow succeeded, ArgoCD
+would have come up pointed at a repository literally named `REPO_URL_PLACEHOLDER` and synced
+nothing, which presents as a healthy control plane with no applications — the failure mode
+hardest to read under a running clock.
+
+Both would have fired at roughly minute 35 of a 180-minute session that cannot be paused,
+resumed or re-run, with the demo window opening at 45.
+
+*Control:* the ArgoCD stage now applies only `root.yaml`, after substituting `REPO_URL`, and
+`die`s if `REPO_URL` cannot be resolved. The resolution deliberately happens *outside* the
+`DRY_RUN` guard, so a missing remote fails on a laptop in a second rather than on a clock in
+AWS.
+
+---
+
+**S67. The dry run could not have found S66, because it only prints the steps that were
+written to be printed.** `make sandbox-plan` is the offline rehearsal of the provisioning
+path and is documented as such in `docs/08-session-runbook.md`. It renders every step
+wrapped in the script's `run` helper. The entire ArgoCD bootstrap sat inside
+`if [ "$DRY_RUN" != "1" ]`, so the plan walked past both defects in silence and printed a
+clean, complete-looking plan.
+
+This is the fourth instance in this project of the same shape — S60/S61 (a skipped matrix
+job reports success), S63 (absent and unanswerable were the same answer), S64 (the defect
+fixed in one of its two copies) — and it is the most expensive, because it is the one that
+was *supposed* to be the safety net for the others. A rehearsal that skips the step you are
+rehearsing is not a weaker check than no rehearsal; it is a worse one, because it is
+believed.
+
+*Control:* the ArgoCD apply is now a `run`-wrapped `kubectl apply --dry-run=client` line, so
+`sandbox-plan` exercises it rather than skipping it. The general lesson is not yet mechanised
+and is recorded here as an open gap: nothing asserts that a dry run covers every stage of the
+script it claims to rehearse. *Gap:* a stage reachable only under `DRY_RUN != 1` is still
+invisible to the plan, and only review catches it.
 
 ---
 
