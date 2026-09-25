@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/moeezurrehman0/starling/compare/v0.2.4...v0.2.5) (2026-09-25)
+
+
+### Bug fixes
+
+* unblock the GitOps deploy path (S70-S74) ([#28](https://github.com/moeezurrehman0/starling/issues/28)) ([a4dc66d](https://github.com/moeezurrehman0/starling/commit/a4dc66d23e0b578cb4b2ffa5a1121d9e719819f3))
+
 ## [0.2.4](https://github.com/moeezurrehman0/starling/compare/v0.2.3...v0.2.4) (2026-09-25)
 
 
