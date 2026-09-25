@@ -158,6 +158,14 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.port }}
+              # Explicit, though the API server defaults it to TCP. The default is
+              # applied by the built-in Deployment schema; a Rollout is a CRD and gets
+              # no such defaulting, so ArgoCD's structured-merge diff cannot build a
+              # typed value for this list and fails with "associative list with keys
+              # has an element that omits key field protocol". The app then reports
+              # Succeeded/synced while the Rollout is never actually updated -- see
+              # S71. Every other ports list in this chart already names the protocol.
+              protocol: TCP
           env:
             - name: JAVA_TOOL_OPTIONS
               # MaxRAMPercentage rather than -Xmx so the heap tracks the memory

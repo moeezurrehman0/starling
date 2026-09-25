@@ -137,8 +137,21 @@ out loud is better than implying the cap is a design choice.
 
 ### 4. A promotion PR canaries to prod (85–110)
 
-Merge the promotion PR. ArgoCD syncs `prod`, Argo Rollouts steps 25% → 50% →
-100%, and inline analysis queries Prometheus at every step.
+Start traffic **first**, and leave it running for the whole promotion:
+
+```bash
+make load-test PEAK_RPS=10 DURATION=25m &   # must outlive the rollout
+```
+
+Then merge the promotion PR. ArgoCD syncs `prod`, Argo Rollouts steps 25% →
+50% → 100%, and inline analysis queries Prometheus at every step.
+
+The background load is not decoration. The analysis fails closed on an empty
+result set — deliberately, because gap class S32 was a canary promoted
+unmeasured — so a service with no traffic produces no series, `len(result) > 0`
+is false, and a perfectly healthy build is rejected. Demo 3's load generator has
+finished by minute 85. Without this line the demo aborts, and it aborts looking
+exactly like a real regression. See S74.
 
 ### 5. The canary refuses a broken build (110–130)
 

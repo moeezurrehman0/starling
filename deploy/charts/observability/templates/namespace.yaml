@@ -1,0 +1,36 @@
+{{- include "observability.guard" . }}
+{{/*
+The agent namespace, declared by the chart that fills it.
+
+Everything else in this chart lands in .Values.namespace, which is the ArgoCD
+Application's destination and is therefore created for us by the
+`CreateNamespace=true` sync option. .Values.agentNamespace is not: that option
+creates the destination namespace and only the destination namespace, so every
+promtail resource addressed to observability-agents had nowhere to go. The
+Application sat permanently OutOfSync with its ServiceAccount, ConfigMap and
+DaemonSet unappliable, no logs reached Loki, and nothing said so in a way that
+named a missing namespace. See S73.
+
+It was not missing everywhere. `scripts/kind-deploy.sh` creates this namespace
+and applies these exact labels before it installs the chart, which is why the
+Helm path works and the GitOps path does not -- the same divergence as the
+`starling-secrets` Secret in S70. Imperative setup that only one of two install
+paths performs is a gap by construction, and the fix is the same both times:
+move it into the chart, where both paths read it.
+
+The labels are the reason this file cannot be replaced by a bare namespace. The
+restricted profile is enforced cluster-wide; promtail runs as uid 0 and mounts
+/var/log/pods and /var/lib/docker/containers from the node, so admission rejects
+every pod the DaemonSet creates. That rejection surfaces as a FailedCreate event
+on the DaemonSet and nothing at all on the Application, which stays Healthy
+while collecting no logs. The exemption is scoped to this namespace deliberately
+-- see the header of promtail.yaml for why Grafana must not share it.
+*/}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.agentNamespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

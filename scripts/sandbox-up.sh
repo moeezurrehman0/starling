@@ -193,6 +193,38 @@ if should_run argocd; then
   run "app-of-apps" kubectl apply --dry-run=client -f - \
     <<<"$(sed "s|REPO_URL_PLACEHOLDER|${REPO_URL}|g" "$(dirname "$0")/../deploy/argocd/root.yaml")"
 
+  # The Secret every service names in `envFrom`, created before the app-of-apps
+  # so that the first sync has it. Nothing in deploy/ or infra/ creates it and
+  # this script never did either: the only other definition lives in
+  # kind-deploy.sh, so Tier L worked because the imperative installer had
+  # already left the object behind and Tier S would have started from an empty
+  # cluster and failed. `envFrom` is `optional: false` deliberately -- a service
+  # that starts without its credentials and fails on the first query is worse
+  # than one that refuses to start -- so a missing Secret is
+  # CreateContainerConfigError on every pod, with the Deployment reporting only
+  # Available=False and no mention of a Secret. See S70.
+  #
+  # The AWS keys are empty on purpose. Tier S authenticates through IRSA, so the
+  # pod must NOT carry static credentials; the keys exist only because the
+  # envFrom contract requires the Secret to exist, and an empty value lets the
+  # SDK's default provider chain fall through to the projected web identity
+  # token. Writing `test`/`test` here, as Tier L does for LocalStack, would
+  # shadow IRSA with credentials that authenticate against nothing.
+  if [ "${DRY_RUN}" != "1" ]; then
+    db_password="$(terraform -chdir="${SANDBOX_ROOT}" output -raw search_db_password 2>/dev/null || true)"
+    [ -n "${db_password}" ] ||
+      warn "no search_db_password output -- the search indexer will not reach RDS (gap register row 15)"
+    kubectl create namespace starling --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create secret generic starling-secrets -n starling \
+      --from-literal=AWS_ACCESS_KEY_ID= \
+      --from-literal=AWS_SECRET_ACCESS_KEY= \
+      --from-literal=SEARCH_DB_PASSWORD="${db_password}" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null ||
+      die "starling-secrets could not be created -- every pod would sit in CreateContainerConfigError"
+  else
+    dim "  [dry-run] kubectl create secret generic starling-secrets -n starling"
+  fi
+
   if [ "${DRY_RUN}" != "1" ]; then
     kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
     helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1
