@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S67`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S68`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S67`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S68`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1264,6 +1264,51 @@ believed.
 and is recorded here as an open gap: nothing asserts that a dry run covers every stage of the
 script it claims to rehearse. *Gap:* a stage reachable only under `DRY_RUN != 1` is still
 invisible to the plan, and only review catches it.
+
+---
+
+**S68. The script had seventeen passing tests. The job around it had none, and the job was
+the part that could not work.** S65's control was a `bump` job in `publish.yml` that
+rewrites the tags in `deploy/envs/dev/` after a successful publish and commits them. It was
+merged with a commit message containing a confident paragraph explaining why it could not
+loop, and with a 17-case self-test behind the script it calls, 8 of those cases in the
+failing direction. On its first real run it failed at the last line:
+
+    ! [remote rejected] HEAD -> main (push declined due to repository rule violations)
+      - Changes must be made through a pull request.
+      - Required status check "CI" is expected.
+
+The branch ruleset on `main` forbids direct pushes. It has always forbidden direct pushes;
+it is the reason every change in this repository arrives as a pull request, including the
+one that added the job. The job was written as though that rule applied to people.
+
+The retry loop made the failure worse rather than better. It was built for a race between
+two publishes finishing close together, so on rejection it rebased and pushed again — three
+times, against a refusal that no amount of rebasing can change. Nine seconds of log
+restating the same rule, then a hard failure. A retry that cannot distinguish "you lost a
+race" from "you are not allowed" converts a clear error into a noisy one.
+
+What was actually tested here is worth naming precisely, because the self-test was not
+weak — it was aimed one level below the defect. It asserted that the bumper rewrites the
+right files, follows the image rather than the filename, is idempotent, expires its own
+waiver, and rejects a placeholder. Every one of those held on the real run. None of them
+could have discovered that the surrounding job had no route to `main`. This is S64's lesson
+arriving a second time within the same session and from the same author: the question
+"is this correct?" was answered thoroughly at the wrong altitude.
+
+*Control:* the job now opens a pull request instead of pushing. This is the better design
+and not merely the permitted one — the bumped manifests go through the same helm-lint and
+schema checks as a hand-written change, and the commit ArgoCD will deploy is reviewable
+before it is deployable. The branch is per-SHA (`automation/dev-image-tags-<short>`), so
+the push is always a fast-forward to a new ref and never needs `--force`; two publishes
+cannot collide on it, which removes the race the retry loop existed for, and the retry loop
+with it. Superseded bump PRs are closed automatically, because an older one left open is an
+unmerged rollback waiting to be clicked.
+
+*Gap:* still unmechanised, and this is the third instance of the class. Nothing asserts that
+a workflow job can perform the write it is built around; GitHub evaluates ruleset permissions
+only at push time, and no offline gate in this repository can see them. The honest control
+here is the one that caught it: the job ran, and someone read the log.
 
 ---
 
