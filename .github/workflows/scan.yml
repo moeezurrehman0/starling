@@ -89,7 +89,36 @@ jobs:
         run: docker pull --platform ${{ matrix.platform }} ${{ matrix.image }}
 
       - name: Scan
+        id: scan
+        # Advisory on a pull request, blocking everywhere else -- and the
+        # distinction is not a softened gate, it is a different question. The
+        # scheduled run asks "is what we are running still clean", and the
+        # answer is actionable. On a pull request the same job is scanning
+        # images the branch did not build and cannot change, so failing it
+        # would block every unrelated change on a CVE in an artefact already in
+        # the registry. That is the shape AGENTS.md rejects for the AIOps
+        # commenter: an advisory check that can block is one people learn to
+        # argue with instead of read. The PR run exists to prove this
+        # workflow's own plumbing works; the verdict it produces belongs to the
+        # schedule, which raises an issue for it.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: ./scripts/image-scan.sh ${{ matrix.image }}
+
+      # `continue-on-error` turns a failure into a green tick, which is exactly
+      # the S60 shape -- a check that passes while meaning nothing. It is only
+      # tolerable if the suppressed verdict is still stated somewhere, so it is
+      # stated here, in the run summary, under its own name.
+      - name: Say so when the verdict was suppressed
+        if: always() && steps.scan.outcome == 'failure'
+        run: |
+          {
+            echo "### Advisory: ${{ matrix.image }} (${{ matrix.platform }})"
+            echo
+            echo "Fixable CRITICAL/HIGH findings in an image that is already published"
+            echo "and already deployed. Advisory on a pull request, because this branch"
+            echo "neither built it nor can fix it. The scheduled run treats the same"
+            echo "result as a failure and raises an issue for it."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # --------------------------------------------------------------------------
   # The half that makes the schedule worth having.

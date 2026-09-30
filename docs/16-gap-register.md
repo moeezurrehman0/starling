@@ -1718,6 +1718,26 @@ matrix makes the scan jobs skip and a skipped job reports success (the S60 shape
 asserts the list is non-empty on every pull request, where someone is looking, rather than
 at 06:15 where nobody is.
 
+*First run:* it found something, on the pull request that added it. `web` failed on
+**both** architectures — `libssl3` 3.0.18 in the distroless Debian 12 base, carrying
+CVE-2026-31789 (CRITICAL, heap buffer overflow) and five HIGH openssl advisories, all
+marked fixed in 3.0.19/3.0.20. The pull-request scan could not have found it, because the
+image predates the advisory; that is precisely the divergence this exists to catch, and it
+appeared within an hour of the control being written. The obvious remedy — republish —
+was checked rather than assumed: `gcr.io/distroless/nodejs22-debian12:nonroot` pulled
+fresh **today still ships 3.0.18**, so a rebuild changes nothing until Google rebuilds the
+base. The finding is real, it is ours to carry, and it is not ours to fix.
+
+That is also why the scan is advisory on a pull request and blocking on the schedule. It
+is not a softened gate; it is a different question. Scheduled, it asks "is what we are
+running still clean", and the answer is actionable. On a pull request the same job scans
+images the branch neither built nor can change, so failing it would block every unrelated
+change on a CVE that no commit can clear — an advisory check that can block, which is the
+shape `AGENTS.md` rejects for the AIOps commenter for the same reason: people learn to
+argue with it instead of read it. Because `continue-on-error` turns a failure into a green
+tick, and a green tick that means nothing is the S60 shape, the suppressed verdict is
+written to the run summary under its own name.
+
 *Gap:* three of them, none pretended otherwise. **First**, `alert-main.yml` uses
 `workflow_run`, which only ever runs the copy of itself on the default branch — a change
 to it cannot be exercised by the pull request that makes it, which is why as much logic as
