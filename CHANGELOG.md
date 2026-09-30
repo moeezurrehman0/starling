@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/moeezurrehman0/starling/compare/v0.3.0...v0.3.1) (2026-09-30)
+
+
+### Bug fixes
+
+* bump image tags in every overlay, not just dev ([#45](https://github.com/moeezurrehman0/starling/issues/45)) ([ec69bc6](https://github.com/moeezurrehman0/starling/commit/ec69bc6ced566f8e98e6db4d1d26e4a54dd555bc))
+
 ## [0.3.0](https://github.com/moeezurrehman0/starling/compare/v0.2.6...v0.3.0) (2026-09-30)
 
 
