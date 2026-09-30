@@ -3,7 +3,7 @@ port: 8082
 
 image:
   repository: ghcr.io/moeezurrehman0/starling/tweet-service
-  tag: sha-346eabcd01551f877353c49282950a4dfeea5ec4
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
 
 networkPolicy:
   allowFrom: [gateway, timeline-service]
