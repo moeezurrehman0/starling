@@ -4,7 +4,7 @@ port: 8081
 image:
   repository: ghcr.io/moeezurrehman0/starling/user-service
   # Written by CI on merge to main. Never `latest` — the chart refuses it.
-  tag: sha-99aca458bf4af3517bdca2116462848a8c8014e0
+  tag: sha-ee15079b3472a15480f5e226b897fa5245139fa0
 
 networkPolicy:
   # Only the gateway and the two services that resolve identity may call this.
