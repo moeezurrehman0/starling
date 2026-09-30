@@ -81,6 +81,15 @@ Two choices worth defending:
 information, not a decision — blocking on it teaches the team to bypass the gate, which
 is worse than not having it.
 
+**The scan also runs on a timer, against what is deployed rather than against `main`.**
+`scan.yml` pulls the images `deploy/envs/dev` is pinned to — both architectures — every
+morning, and `alert-main.yml` watches CI, Publish and Release on `main`. Both route
+through `scripts/alert-issue.sh`, which opens one GitHub issue per condition and closes it
+on recovery. The distinction matters: the pull-request scan answers "would the next
+release be clean", which is not the same question as "is the thing currently running still
+clean", and only the second one degrades on its own as the vulnerability database moves
+([`docs/16-gap-register.md`](16-gap-register.md) S76 and S77).
+
 **Integration tests use Testcontainers, not mocks.** A mocked repository test passes
 against a schema that does not exist. Tests run against LocalStack for DynamoDB and its
 streams, and against real PostgreSQL for the search index — which is also how the Flyway

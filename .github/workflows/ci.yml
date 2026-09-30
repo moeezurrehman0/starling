@@ -190,6 +190,22 @@ jobs:
       - name: Assert the dev manifests reference images that exist
         run: ./scripts/deploy-bump-tags.sh --check
 
+      # The alerting path is the only thing standing between "main is red" and
+      # "nobody knows main is red" (S76), and its failure mode is silence: a
+      # scheduled job that raises no alert looks identical whether everything is
+      # healthy or the alerting is broken. Nothing about the daily run can tell
+      # the difference, so every branch is asserted here instead, against a
+      # stubbed `gh` whose responses were transcribed from real invocations.
+      - name: Alerting self-test
+        run: ./scripts/alert-issue-selftest.sh
+
+      # The scheduled scan derives its matrix from what the tier is pinned to.
+      # An empty matrix makes the scan jobs skip, and a skipped job reports
+      # success -- the S60 shape. This asserts the list is non-empty here, where
+      # a pull request can see it, rather than at 06:15 where nobody is looking.
+      - name: Assert the scheduled scan has something to scan
+        run: ./scripts/deployed-images.sh dev
+
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck

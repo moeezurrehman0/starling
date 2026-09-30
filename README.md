@@ -60,6 +60,7 @@ make helm-lint         # render and schema-check every chart for every environme
 make tf-validate       # fmt, validate, tflint, checkov on both Terraform roots
 make tf-test           # terraform test with mocked providers — the Tier P assertions
 make aiops-selftest    # the risk analyser, two-sided, no model or network
+make alert-selftest    # the alerting path, against a stubbed gh — opens nothing
 make sandbox-selftest  # the 180-minute lifecycle against stub AWS binaries
 make diagrams          # every Mermaid diagram must still parse
 ```

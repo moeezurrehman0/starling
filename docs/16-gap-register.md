@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S76`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S77`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S76`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S77`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1671,6 +1671,85 @@ and folding a third concern into it would be the same mistake in a different dir
 Until then, "the scan is green" means "the scan was green when someone last pushed", and
 the gap between those two statements grows at exactly the rate the vulnerability database
 moves.
+
+---
+
+**S77. Writing the alerting meant running it, and running it found the bug that would
+have made it silent.** S76 left two things open: nothing asked the scan on a timer, and
+nothing said anything when `main` went red. Both are now closed —
+`.github/workflows/scan.yml` scans daily, `.github/workflows/alert-main.yml` watches CI,
+Publish and Release on `main`, and both route through `scripts/alert-issue.sh`, which
+opens one issue per condition, comments on repeats, and closes it when the condition
+clears.
+
+The scheduled scan deliberately scans **what the dev tier is pinned to, pulled from the
+registry, on both architectures** — not a rebuild of `main`. A rebuild answers "would the
+next release be clean", which every pull request already answers. This answers "is the
+thing currently running still clean", which nothing did, and those two diverge precisely
+in the case S76 was about: an image built weeks ago, never rebuilt, quietly accumulating
+advisories. Both architectures because the publish is multi-arch as of S69, and scanning
+one while reporting on both is the S69 mistake wearing a different hat.
+
+The part worth recording is how the script was built. S75's rule is that a stub's output
+is transcribed from a real invocation rather than written from memory, so before writing
+the self-test I ran `alert-issue.sh` against this repository for real: it opened issue
+#37, commented on it, closed it, then went round again through #38 and #39. That
+exercise paid for itself inside two minutes. `gh issue list --state open --label …`
+returned an issue that had been closed **one second earlier**, and the identical query
+twenty seconds later returned nothing — GitHub's list index lags behind the mutation.
+
+Written from memory, the fixture would have had the server-side filter behaving perfectly.
+Every test would have passed. And the first time a condition re-raised shortly after being
+resolved, the script would have commented onto a closed, unsubscribed thread and reported
+success — an alerting system that believes it has alerted. That is a worse outcome than
+the gap S76 described, because the gap at least did not claim to be covered. The filter is
+now applied client-side from the payload's own `state` field, which was correct even when
+the query filter was not, and the `jq` runs in the script rather than inside `gh --jq` so
+that a recorded payload can be pushed through the same expression the workflow runs.
+
+*Control:* `scripts/alert-issue-selftest.sh`, 12 cases, wired into `make alert-selftest`
+and the CI `Scripts` job. Every negative case asserts the mutating subcommand was **not
+called**, not merely that the exit status was zero — the failure mode here is silence, and
+an exit status cannot see it. Verified two-sided by hand: removing the client-side state
+filter turns 12 passed into 10 passed, 2 failed, and the failure message is the real bug
+verbatim — `commented on existing alert #38` where a new issue was required.
+`scripts/deployed-images.sh` refuses to emit fewer than four images, because an empty
+matrix makes the scan jobs skip and a skipped job reports success (the S60 shape); CI
+asserts the list is non-empty on every pull request, where someone is looking, rather than
+at 06:15 where nobody is.
+
+*First run:* it found something, on the pull request that added it. `web` failed on
+**both** architectures — `libssl3` 3.0.18 in the distroless Debian 12 base, carrying
+CVE-2026-31789 (CRITICAL, heap buffer overflow) and five HIGH openssl advisories, all
+marked fixed in 3.0.19/3.0.20. The pull-request scan could not have found it, because the
+image predates the advisory; that is precisely the divergence this exists to catch, and it
+appeared within an hour of the control being written. The obvious remedy — republish —
+was checked rather than assumed: `gcr.io/distroless/nodejs22-debian12:nonroot` pulled
+fresh **today still ships 3.0.18**, so a rebuild changes nothing until Google rebuilds the
+base. The finding is real, it is ours to carry, and it is not ours to fix.
+
+That is also why the scan is advisory on a pull request and blocking on the schedule. It
+is not a softened gate; it is a different question. Scheduled, it asks "is what we are
+running still clean", and the answer is actionable. On a pull request the same job scans
+images the branch neither built nor can change, so failing it would block every unrelated
+change on a CVE that no commit can clear — an advisory check that can block, which is the
+shape `AGENTS.md` rejects for the AIOps commenter for the same reason: people learn to
+argue with it instead of read it. Because `continue-on-error` turns a failure into a green
+tick, and a green tick that means nothing is the S60 shape, the suppressed verdict is
+written to the run summary under its own name.
+
+*Gap:* three of them, none pretended otherwise. **First**, `alert-main.yml` uses
+`workflow_run`, which only ever runs the copy of itself on the default branch — a change
+to it cannot be exercised by the pull request that makes it, which is why as much logic as
+possible was pushed down into the script where a self-test can reach it, and why what
+remains in the workflow is a `case` statement over four literals. **Second**, the alerting
+depends on GitHub Actions being able to run at all; an outage that stops the scheduled
+scan also stops the thing that would report it not running, and nothing here watches the
+watcher. A dead-man's switch is the standard answer and is not implemented. **Third**, the
+scan is now the only consumer of the images in `deploy/envs/dev`, so a tier whose tags
+stopped being bumped would be scanned faithfully and reported clean forever while the
+cluster ran something else entirely — the tags and the cluster are not compared to each
+other by anything.
 
 ---
 
