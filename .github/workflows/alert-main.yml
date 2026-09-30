@@ -1,0 +1,105 @@
+# Somebody notices when `main` goes red.
+#
+# S76: CI and Publish both failed on a release commit and stayed failed for two
+# days. Nothing was wrong with the detection -- the jobs ran, and they were
+# correct -- but a run on `main` has no reviewer waiting on it the way a pull
+# request does, so a red tick there is seen only by whoever happens to look at
+# the Actions tab. Nobody did. The discovery mechanism was "the next
+# contributor is inconvenienced", which works exactly as long as there is a
+# next contributor and not one day longer.
+#
+# WHY workflow_run
+#
+# It fires after the watched workflow finishes, in a separate run with its own
+# permissions, so the pipeline itself never needs `issues: write`. A failing
+# job cannot also be the thing that reports its own failure -- if it died
+# because the runner vanished, the reporting step died with it.
+#
+# The trade-off is stated rather than hidden: `workflow_run` only triggers from
+# the version of this file on the default branch. A change to this workflow
+# cannot be exercised on a pull request, which is the same class of gap as
+# anything else that only runs post-merge, and it is why the logic it depends
+# on lives in alert-issue.sh, where a self-test can reach it offline.
+name: Alert on red main
+
+on:
+  workflow_run:
+    workflows: [CI, Publish, Release]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One at a time. Two workflows finishing seconds apart would otherwise race to
+# decide whether an alert issue exists, and both would open one.
+concurrency:
+  group: alert-main
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: Raise or resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # A cancelled run is not a pass and is not a failure worth waking anyone
+      # for -- `main`'s CI cancels superseded Publish runs routinely when merges
+      # land in quick succession, which is how runs for 8ce1c7c and 3450dc9
+      # ended. Alerting on those would be noise, and an alert that is usually
+      # noise is an alert that gets muted.
+      - name: Decide
+        id: decide
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          case "$CONCLUSION" in
+            success)   echo "action=resolve" >> "$GITHUB_OUTPUT" ;;
+            failure|timed_out) echo "action=raise" >> "$GITHUB_OUTPUT" ;;
+            *)         echo "action=ignore"  >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "saw conclusion=${CONCLUSION}"
+
+      # Resolving only on the same workflow that raised would need per-workflow
+      # keys; resolving on any green run of any watched workflow would close an
+      # alert about Publish because CI went green. The key is therefore the
+      # workflow name, so CI, Publish and Release each get their own thread and
+      # each closes its own.
+      - name: Raise or resolve
+        if: steps.decide.outputs.action != 'ignore'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTION: ${{ steps.decide.outputs.action }}
+          WF: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          TITLE_TEXT: ${{ github.event.workflow_run.display_title }}
+        run: |
+          set -euo pipefail
+          key="main-red-$(echo "$WF" | tr '[:upper:] ' '[:lower:]-')"
+
+          if [ "$ACTION" = "resolve" ]; then
+            ./scripts/alert-issue.sh resolve "$key" \
+              "${WF} is green again on \`${SHA}\`: ${RUN_URL}"
+            exit 0
+          fi
+
+          cat > /tmp/alert.md <<EOF
+          **${WF} failed on \`main\`.**
+
+          - commit: \`${SHA}\` — ${TITLE_TEXT}
+          - run: ${RUN_URL}
+
+          Nothing is waiting on this the way a pull request review waits on a
+          check, which is why it is an issue rather than a red tick. It closes
+          itself when ${WF} next succeeds on \`main\`.
+          EOF
+
+          ./scripts/alert-issue.sh raise "$key" \
+            "${WF} is failing on main" /tmp/alert.md

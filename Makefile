@@ -216,6 +216,15 @@ release-selftest: ## Two-sided test of the Publish and Release verification gate
 	@./scripts/release-verify-selftest.sh
 	@./scripts/manifest-merge-selftest.sh
 
+.PHONY: alert-selftest
+alert-selftest: ## Two-sided test of the alerting path against a stubbed gh — offline
+	@# S76. An alert that cannot fire is worse than no alert: it replaces
+	@# "nobody is watching" with the belief that something is. Every negative
+	@# case asserts the mutating call was NOT made, not merely that the exit
+	@# status was zero.
+	@./scripts/alert-issue-selftest.sh
+	@./scripts/deployed-images.sh dev >/dev/null && echo "ok    deploy/envs/dev resolves to a non-empty image set"
+
 .PHONY: deploy-verify
 deploy-verify: ## Assert deploy/envs/dev points at images that exist, and test the bumper — offline
 	@# The only consumer that reads these files is ArgoCD, so nothing else

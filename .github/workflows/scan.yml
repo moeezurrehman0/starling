@@ -1,0 +1,144 @@
+# The scan that nobody had to push to trigger.
+#
+# S76: the image scan is a merge gate, but its verdict changes without a
+# commit, because the vulnerability database moves under it. That was written
+# down in S50's gap paragraph and then not acted on, and the consequence
+# arrived on schedule: `main` sat red for two days over a real CVE, and the way
+# anyone found out was an unrelated pull request happening to run the jobs.
+#
+# So this asks the question on a timer, and -- the half that makes the timer
+# worth having -- sends the answer somewhere a human will see it.
+#
+# WHAT IT SCANS, AND WHY NOT A REBUILD
+#
+# The images the dev tier is pinned to, pulled from the registry. Not a rebuild
+# of `main`. A rebuild answers "would the next release be clean", which CI
+# already answers on every pull request; this answers "is the thing currently
+# running still clean", which nothing did. Those diverge precisely when it
+# matters -- an image built six weeks ago, never rebuilt, quietly accumulating
+# advisories.
+#
+# Both architectures, because the publish is multi-arch as of S69 and a `docker
+# pull` on an arm64 node resolves to a different set of base layers than the
+# amd64 one this would otherwise scan. Scanning one and reporting on both would
+# be the S69 mistake again: an answer that is correct about the thing it looked
+# at and silent about the thing it did not.
+name: Scheduled scan
+
+on:
+  schedule:
+    # 06:15 UTC daily. Not on the hour: GitHub's scheduler queues heavily at
+    # :00 and a cron that is allowed to be an hour late is a cron that reports
+    # yesterday's answer.
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+  # Changes to the scan itself, or to what is pinned, should not wait a day to
+  # be exercised. Restricted to this file's own inputs so it is not a second
+  # copy of CI.
+  pull_request:
+    paths:
+      - .github/workflows/scan.yml
+      - scripts/deployed-images.sh
+      - scripts/alert-issue.sh
+      - scripts/image-scan.sh
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: Resolve what is deployed
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: |
+          echo "matrix=$(./scripts/deployed-images.sh dev --json)" >> "$GITHUB_OUTPUT"
+          ./scripts/deployed-images.sh dev
+
+  scan:
+    name: Scan ${{ matrix.image }} (${{ matrix.platform }})
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      # Every image's answer is wanted, not just the first bad one. A
+      # fail-fast matrix here would report one CVE and hide five.
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.images.outputs.matrix) }}
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # image-scan.sh deliberately refuses an image that is not in the local
+      # daemon, so that a typo cannot be mistaken for a clean scan. Pulling the
+      # specific platform is also what makes the arm64 half real rather than a
+      # second look at the same amd64 layers.
+      - name: Pull
+        run: docker pull --platform ${{ matrix.platform }} ${{ matrix.image }}
+
+      - name: Scan
+        run: ./scripts/image-scan.sh ${{ matrix.image }}
+
+  # --------------------------------------------------------------------------
+  # The half that makes the schedule worth having.
+  #
+  # `always()` and an explicit result check, not `if: failure()`: a cancelled or
+  # skipped matrix is not a pass, and `needs.scan.result` distinguishes them,
+  # which is the same reasoning as CI's `verdict` job.
+  # --------------------------------------------------------------------------
+  alert:
+    name: Alert
+    needs: [images, scan]
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Raise or resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+          IMAGES_RESULT: ${{ needs.images.result }}
+        run: |
+          set -euo pipefail
+          if [ "$SCAN_RESULT" = "success" ] && [ "$IMAGES_RESULT" = "success" ]; then
+            ./scripts/alert-issue.sh resolve scheduled-scan \
+              "The deployed images scan clean again as of ${RUN_URL}."
+            exit 0
+          fi
+
+          cat > /tmp/alert.md <<EOF
+          The daily scan of the images \`deploy/envs/dev\` is pinned to did not pass.
+
+          - resolve step: \`${IMAGES_RESULT}\`
+          - scan matrix: \`${SCAN_RESULT}\`
+          - run: ${RUN_URL}
+
+          These are the images currently deployed, not a rebuild of \`main\`, so a
+          failure here means something already running has acquired a fixable
+          CRITICAL or HIGH — or that the scan itself could not complete, which is
+          the same thing as far as this alert is concerned.
+
+          This issue stays open until a later run of this workflow passes, at
+          which point the workflow closes it. Closing it by hand only hides it
+          until tomorrow morning.
+          EOF
+
+          ./scripts/alert-issue.sh raise scheduled-scan \
+            "Scheduled scan: deployed images are not clean" /tmp/alert.md
