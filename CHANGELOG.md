@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/moeezurrehman0/starling/compare/v0.2.6...v0.3.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* give Tier S its own environment overlay and a real AWS identity ([#41](https://github.com/moeezurrehman0/starling/issues/41))
+
+### Features
+
+* give Tier S its own environment overlay and a real AWS identity ([#41](https://github.com/moeezurrehman0/starling/issues/41)) ([ee15079](https://github.com/moeezurrehman0/starling/commit/ee15079b3472a15480f5e226b897fa5245139fa0))
+* scan deployed images daily and alert when main goes red ([#40](https://github.com/moeezurrehman0/starling/issues/40)) ([99aca45](https://github.com/moeezurrehman0/starling/commit/99aca458bf4af3517bdca2116462848a8c8014e0))
+
 ## [0.2.6](https://github.com/moeezurrehman0/starling/compare/v0.2.5...v0.2.6) (2026-09-30)
 
 
