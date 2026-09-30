@@ -34,6 +34,15 @@ dependencies {
     testImplementation(platform(libs.findLibrary("aws-sdk-bom").get()))
     "integrationTestImplementation"(platform(libs.findLibrary("aws-sdk-bom").get()))
 
+    // Jackson 3, ahead of the 3.1.5 the Boot BOM imports. CVE-2026-68497 is a
+    // HIGH CPU denial of service via unbounded numeric parsing, fixed in 3.1.6,
+    // and the image scan is a gate. Declared after the Boot platform so the
+    // higher version wins conflict resolution; imported as a BOM so core,
+    // databind and the datatype modules stay on one version.
+    implementation(platform(libs.findLibrary("jackson-bom").get()))
+    testImplementation(platform(libs.findLibrary("jackson-bom").get()))
+    "integrationTestImplementation"(platform(libs.findLibrary("jackson-bom").get()))
+
     implementation(libs.findLibrary("boot-starter").get())
     implementation(libs.findLibrary("boot-actuator").get())
     implementation(libs.findLibrary("boot-validation").get())

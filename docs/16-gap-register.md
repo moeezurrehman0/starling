@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S75`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S76`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S75`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S76`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1632,6 +1632,45 @@ asserts that a fixture resembles the thing it imitates, and nothing can, offline
 honest mitigation is a rule rather than a gate: a stub's output is transcribed from a real
 invocation and the run it came from is named in a comment. That is now done here and
 nowhere else.
+
+---
+
+**S76. `main` had been red for two days and the way anyone found out was an unrelated
+pull request.** Pushing the S75 fix turned all five image jobs red — a change that touches
+one shell script and one document cannot break a container scan, so the first job was to
+disprove my own PR. It was not the cause: the same five jobs had failed identically on
+`main` two days earlier, on the release commit, and nothing had been done about it.
+
+The finding was real. `tools.jackson.core:jackson-databind` 3.1.5, which Boot 4.1.1's BOM
+imports, had acquired CVE-2026-68497 — a HIGH, unbounded numeric parsing, CPU denial of
+service, fixed in 3.1.6. The scanner was doing exactly its job. It is now held at 3.1.7 by
+importing the Jackson BOM after Boot's, which is the same manoeuvre already used for
+Tomcat in S50, and for the same reason: the fix exists upstream and the BOM has not caught
+up. A BOM rather than per-artefact constraints because Jackson's modules have to resolve
+as a set — pinning `databind` alone would leave `core` a minor behind it.
+
+The dependency bump is the boring half. The interesting half is that nobody was told.
+S50's gap paragraph already says it out loud — "the vulnerability database is still
+fetched at run time and still moves, so the gate's verdict can change without any commit"
+— and the consequence was written down and then not acted on. There is no scheduled
+workflow in this repository at all. The image jobs are behind a path filter, so a release
+commit that touches only a changelog skips them entirely, and a commit that does run them
+and fails produces a red tick on `main` that no human has any reason to look at. A gate
+whose answer changes on its own needs something that asks it on a timer; otherwise the
+discovery mechanism is "the next contributor is inconvenienced", which is what happened,
+and which only works while there is a next contributor.
+
+*Control:* Jackson held at 3.1.7 in `gradle/libs.versions.toml`, applied in
+`starling.spring-service-conventions.gradle.kts`. Verified by scanning all five service
+jars with the same scanner image CI uses, before and after: one HIGH in `gateway` before,
+zero across all five after. `./gradlew build` passes.
+
+*Gap:* nothing runs the scan on a schedule, and nothing notifies on a red `main`. Both are
+small to add and neither is added here, because this PR exists to unblock something else
+and folding a third concern into it would be the same mistake in a different direction.
+Until then, "the scan is green" means "the scan was green when someone last pushed", and
+the gap between those two statements grows at exactly the rate the vulnerability database
+moves.
 
 ---
 
