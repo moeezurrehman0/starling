@@ -41,15 +41,52 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-ENV_DIR="${ENV_DIR:-deploy/envs/dev}"
 PLACEHOLDER_TAG="sha-0000000"
 UNPUBLISHED_FILE_NAME=".unpublished"
 CHECK_ONLY=0
-[ "${1:-}" = "--check" ] && CHECK_ONLY=1
+LIST_ONLY=0
+case "${1:-}" in
+  --check) CHECK_ONLY=1 ;;
+  --list-dirs) LIST_ONLY=1 ;;
+esac
 
 die() { echo "::error::$*" >&2; exit 1; }
 
-[ -d "$ENV_DIR" ] || die "no such directory: ${ENV_DIR}"
+# Which overlays this script owns: discovered, not listed.
+#
+# It used to be one directory, defaulting to deploy/envs/dev, and that was
+# correct for exactly as long as there were two overlays. Adding
+# deploy/envs/sandbox in S78 made it wrong silently: the sandbox manifests kept
+# whatever SHA they were created with, no bump PR ever touched them, and every
+# tag stayed valid and pullable -- so nothing failed and the 180-minute session
+# would have demonstrated code from before the overlay existed.
+#
+# Deriving the list means the next tier cannot be forgotten the same way. prod
+# is excluded because it is promoted by a deliberate pull request, not bumped
+# by automation, and this script must never write to it.
+if [ -n "${ENV_DIR:-}" ]; then
+  ENV_DIRS=("$ENV_DIR")
+else
+  ENV_DIRS=()
+  for d in deploy/envs/*/; do
+    d="${d%/}"
+    [ "$(basename "$d")" = "prod" ] && continue
+    ENV_DIRS+=("$d")
+  done
+fi
+
+[ "${#ENV_DIRS[@]}" -gt 0 ] || die "no environment overlays found under deploy/envs"
+
+for d in "${ENV_DIRS[@]}"; do
+  [ -d "$d" ] || die "no such directory: ${d}"
+  [ "$(basename "$d")" = "prod" ] &&
+    die "refusing to rewrite deploy/envs/prod: Tier P is promoted by pull request, never by automation"
+done
+
+if [ "$LIST_ONLY" -eq 1 ]; then
+  printf '%s\n' "${ENV_DIRS[@]}"
+  exit 0
+fi
 
 # The image a values file refers to is its own `repository:` basename, not its
 # filename. They differ on purpose: tweet-indexer.yaml runs the tweet-service
@@ -67,7 +104,9 @@ tag_of() {
   awk '/^[[:space:]]*tag:[[:space:]]*/ {print $2; exit}' "$1"
 }
 
-UNPUBLISHED="${ENV_DIR}/${UNPUBLISHED_FILE_NAME}"
+# Set per overlay as the loops below move between them, because a waiver is a
+# statement about one environment's manifests and must not leak into another's.
+UNPUBLISHED=""
 
 is_waived() {
   [ -f "$UNPUBLISHED" ] || return 1
@@ -76,6 +115,8 @@ is_waived() {
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
   bad=0
+  for ENV_DIR in "${ENV_DIRS[@]}"; do
+  UNPUBLISHED="${ENV_DIR}/${UNPUBLISHED_FILE_NAME}"
   for f in "$ENV_DIR"/*.yaml; do
     [ "$(basename "$f")" = "values.yaml" ] && continue
     tag=$(tag_of "$f")
@@ -96,13 +137,14 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     echo "  BAD NAMESPACE ${line}"
     bad=1
   done < <(grep -rn "ghcr\.io/starling/" "$ENV_DIR" 2>/dev/null || true)
+  done
 
   [ "$bad" -eq 0 ] ||
-    die "deploy manifests in ${ENV_DIR} would make ArgoCD pull an image that" \
+    die "deploy manifests in ${ENV_DIRS[*]} would make ArgoCD pull an image that" \
         "does not exist. This is the state that left every pod in" \
         "ImagePullBackOff while every check was green."
 
-  echo "All image references in ${ENV_DIR} are real: no placeholder tags, no dead namespace."
+  echo "All image references in ${ENV_DIRS[*]} are real: no placeholder tags, no dead namespace."
   exit 0
 fi
 
@@ -117,6 +159,8 @@ published=$(jq -r '.[]' <<<"$SERVICES")
 [ "$WEB_PUBLISHED" = "true" ] && published=$(printf '%s\nweb\n' "$published")
 
 changed=0
+for ENV_DIR in "${ENV_DIRS[@]}"; do
+UNPUBLISHED="${ENV_DIR}/${UNPUBLISHED_FILE_NAME}"
 for f in "$ENV_DIR"/*.yaml; do
   [ "$(basename "$f")" = "values.yaml" ] && continue
   img=$(image_of "$f") || continue
@@ -156,5 +200,6 @@ for f in "$ENV_DIR"/*.yaml; do
     echo "  un-waived     ${img} removed from ${UNPUBLISHED}"
   fi
 done
+done
 
-echo "${changed} file(s) updated in ${ENV_DIR}."
+echo "${changed} file(s) updated in ${ENV_DIRS[*]}."

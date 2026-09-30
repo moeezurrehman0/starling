@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S78`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S79`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S78`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S79`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1299,8 +1299,9 @@ arriving a second time within the same session and from the same author: the que
 *Control:* the job now opens a pull request instead of pushing. This is the better design
 and not merely the permitted one — the bumped manifests go through the same helm-lint and
 schema checks as a hand-written change, and the commit ArgoCD will deploy is reviewable
-before it is deployable. The branch is per-SHA (`automation/dev-image-tags-<short>`), so
-the push is always a fast-forward to a new ref and never needs `--force`; two publishes
+before it is deployable. The branch is per-SHA (`automation/image-tags-<short>`; the
+older `automation/dev-image-tags-` prefix is still matched when closing superseded PRs,
+see S79), so the push is always a fast-forward to a new ref and never needs `--force`; two publishes
 cannot collide on it, which removes the race the retry loop existed for, and the retry loop
 with it. Superseded bump PRs are closed automatically, because an older one left open is an
 unmerged rollback waiting to be clicked.
@@ -1842,6 +1843,52 @@ kubeconform accepts it, that the guards refuse what they should, and that
 a NetworkPolicy with an explicit VPC CIDR is **unproven**, and is the first thing
 minute 45 tests. A review is a weaker control than an execution; the invariants above
 exist because this was found by reading, and reading does not scale.
+
+**S79. Fixing S78 created a second overlay that no automation owned, and every
+tag in it stayed valid.** `scripts/deploy-bump-tags.sh` was parameterised —
+`ENV_DIR="${ENV_DIR:-deploy/envs/dev}"` — which reads as general and is not. The
+Publish workflow called it with no `ENV_DIR`, staged `deploy/envs/dev`, and
+diffed `deploy/envs/dev`. Three places, all agreeing, all dev-only. Adding
+`deploy/envs/sandbox` in S78 therefore produced an overlay that no bump PR would
+ever touch.
+
+The tags it was born with — `sha-ee23865…` — are real, published, multi-arch and
+pullable. So `--check` passed, `helm-validate` passed, kubeconform passed, and
+ArgoCD would have synced Healthy. The 180-minute session would have demonstrated
+the commit *before the sandbox overlay existed*, and the only way to notice is to
+compare two files nobody diffs against each other. By the time it was caught the
+overlay was already two merges stale.
+
+This is S78's own failure repeated one layer up, which is the part worth
+recording: the fix for "Tier S silently ran the wrong configuration" introduced
+"Tier S silently runs the wrong image". Both had the same shape — a second thing
+that had to be updated in step with a first, with nothing asserting they were in
+step — and I introduced the second while writing the control for the first.
+
+*Fix:* the script **discovers** the overlays it owns (`deploy/envs/*` minus
+`prod`) instead of taking one directory, exposes them with `--list-dirs`, and
+refuses an explicit `ENV_DIR` of prod outright — because excluding prod from
+discovery is not the same as refusing to write to it, and only the second
+survives somebody setting the variable by hand. The workflow asks the script for
+the list rather than repeating it, since two places that both have to know the
+answer is how this happened. Tier P stays excluded: it is promoted by a
+deliberate pull request, never by automation.
+
+The bump branch is renamed `automation/image-tags-<short>` now that it is not
+dev-only, and the superseded-PR matcher accepts **both** prefixes. A matcher that
+knew only the new name would have left every in-flight PR from the old one open
+forever — silently, because closing nothing and having nothing to close produce
+identical logs. The selector was proven against a fixture containing one branch
+of each prefix plus an unrelated one.
+
+*Control:* `scripts/deploy-bump-tags-selftest.sh` grew five cases — each expected
+overlay is in the managed set, prod is not, an explicit prod target is refused,
+and every managed overlay is bumped in one pass. Proven two-sided by adding a
+`sandbox` exclusion to the discovery loop and observing
+`FAIL deploy/envs/sandbox is not managed, so its tags would never be bumped`,
+then reverting. The stale sandbox tags were brought to dev's current SHA in the
+same change, and all three images spot-checked with `docker manifest inspect`
+rather than assumed.
 
 ## Maintenance
 
