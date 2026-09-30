@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.5](https://github.com/moeezurrehman0/starling/compare/v0.2.4...v0.2.5) (2026-09-30)
+
+
+### Bug fixes
+
+* unblock the GitOps deploy path (S70-S74) ([#28](https://github.com/moeezurrehman0/starling/issues/28)) ([a4dc66d](https://github.com/moeezurrehman0/starling/commit/a4dc66d23e0b578cb4b2ffa5a1121d9e719819f3))
+
+
+### Build and dependencies
+
+* bump gradle-wrapper from 9.7.1 to 9.8.0 ([#31](https://github.com/moeezurrehman0/starling/issues/31)) ([6fa2351](https://github.com/moeezurrehman0/starling/commit/6fa23514a283b01616b0c496027637b5131f6b69))
+* bump software.amazon.awssdk:bom from 2.55.1 to 2.55.5 ([#32](https://github.com/moeezurrehman0/starling/issues/32)) ([3450dc9](https://github.com/moeezurrehman0/starling/commit/3450dc98a806042581b8fb957813940fd86f5c1f))
+
+
+### CI
+
+* bump the actions group with 2 updates ([#33](https://github.com/moeezurrehman0/starling/issues/33)) ([8ce1c7c](https://github.com/moeezurrehman0/starling/commit/8ce1c7ce8f51d2ee9c39ae27843fa60b680d33be))
+
 ## [0.2.4](https://github.com/moeezurrehman0/starling/compare/v0.2.3...v0.2.4) (2026-09-25)
 
 
