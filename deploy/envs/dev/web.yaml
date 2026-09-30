@@ -3,7 +3,7 @@ port: 3000
 
 image:
   repository: ghcr.io/moeezurrehman0/starling/web
-  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+  tag: sha-99aca458bf4af3517bdca2116462848a8c8014e0
 
 # Not a Spring Boot service, so the actuator paths do not exist. Next's own
 # health route is the readiness signal, and there is no separate liveness
