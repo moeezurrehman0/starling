@@ -1,4 +1,5 @@
 {{- include "dev-infra.guard" . }}
+{{- if .Values.components.redis }}
 {{- range $n := list "main" "celeb" }}
 ---
 apiVersion: v1
@@ -63,4 +64,5 @@ spec:
             # above would never run.
             requests: {cpu: 50m, memory: {{ if eq $n "main" }}384Mi{{ else }}224Mi{{ end }}}
             limits: {memory: {{ if eq $n "main" }}384Mi{{ else }}224Mi{{ end }}}
+{{- end }}
 {{- end }}

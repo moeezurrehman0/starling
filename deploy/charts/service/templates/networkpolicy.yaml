@@ -87,13 +87,29 @@ spec:
     # to the node's instance role credentials -- which defeats IRSA entirely. IMDSv2
     # makes that harder, not impossible, and the whole point of per-service roles is
     # that a compromised service cannot borrow the node's.
+    #
+    # networkPolicy.allowImds removes the exclusion, and is only correct where
+    # there are no per-service roles to defeat: with the node-role fallback, the
+    # link-local address is how credentials arrive, so blocking it grants the
+    # pod nothing at all. Turning it on is visible in a rendered manifest and in
+    # a diff, which is the point.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
+              {{- if not .Values.networkPolicy.allowImds }}
               - 169.254.169.254/32
+              {{- end }}
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+    {{- end }}
+    {{- range .Values.networkPolicy.allowCidrs }}
+    # A private address the rule above deliberately excludes -- RDS in the
+    # sandbox's default VPC being the reason this exists. Listed one at a time
+    # so that re-admitting a whole RFC1918 range is a visible act.
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
     {{- end }}
 {{- end }}

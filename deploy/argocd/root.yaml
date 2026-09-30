@@ -2,13 +2,18 @@
 # Git, which is the only way the claim "the cluster matches the repo" can be
 # checked rather than asserted.
 #
-#   kubectl apply -f deploy/argocd/root.yaml
+#   sed -e s/REPO_URL_PLACEHOLDER/.../ -e s/ENV_PLACEHOLDER/dev/ \\
+#     deploy/argocd/root.yaml | kubectl apply -f -
 #
-# Bootstrap rewrites repoURL; see `make kind-up`.
+# Bootstrap rewrites repoURL and the tier. The tier is a placeholder rather than
+# a committed default because a default is what produced the defect: this file
+# said `dev`, `sandbox-up.sh` applied it unchanged, and Tier S spent every
+# session running the Tier L overlay against real AWS infrastructure it then
+# ignored. A value that must be supplied cannot be silently wrong.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root-dev
+  name: root-ENV_PLACEHOLDER
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -23,7 +28,13 @@ spec:
         - name: repoURL
           value: REPO_URL_PLACEHOLDER
         - name: env
-          value: dev
+          value: ENV_PLACEHOLDER
+        # Replaced by sandbox-up.sh with one `irsaRoleArns.<service>` parameter
+        # per role that Terraform actually created. It is a comment rather than a
+        # placeholder token because it is legitimately absent in Tier L -- kind
+        # has no IAM -- and an unsubstituted comment is valid YAML, so the file
+        # applies correctly whether or not anything rewrites this line.
+        # IRSA_PARAMS_PLACEHOLDER
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

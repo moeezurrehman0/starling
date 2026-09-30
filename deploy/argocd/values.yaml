@@ -4,8 +4,13 @@
 repoURL: ""
 targetRevision: main
 
-# dev or prod. Selects which deploy/envs/<env> directory each Application reads
-# and, more importantly, which sync policy it gets.
+# dev, sandbox or prod. Selects which deploy/envs/<env> directory each
+# Application reads and, more importantly, which sync policy it gets.
+#
+# `sandbox` exists because there are three tiers and there used to be two
+# overlays. Tier S booted `dev`, so a cluster with nine real DynamoDB tables and
+# a real RDS instance ran an application pointed at an in-cluster LocalStack.
+# Nothing failed; it simply demonstrated Tier L on more expensive hardware.
 env: dev
 
 namespace: starling
@@ -22,6 +27,20 @@ autoSync: true
 # for Tier L and Tier S; false for Tier P, where these are managed AWS services.
 devInfra: true
 
+# Which parts of it. Not all three tiers want the same subset, and the flag that
+# used to be a single boolean could not say so: Tier S has no ElastiCache and so
+# needs the in-cluster caches, while DynamoDB and RDS are real there and an
+# impersonator alongside them is worse than useless. `sandbox-up.sh` overrides
+# postgres and localstack are forced off whenever env is `sandbox` -- derived
+# from the tier by the template rather than set alongside it, because a flag
+# someone has to remember is a flag that will be wrong in the session that
+# matters. The chart's guard then refuses the combination outright, so the
+# derivation is checked rather than trusted.
+devInfraComponents:
+  redis: true
+  postgres: true
+  localstack: true
+
 # Install Prometheus, Loki, Tempo, the OTel collector and Grafana. True in Tier L
 # and Tier S. False in Tier P, where the backends are AMP, AMG and X-Ray -- but
 # prometheus-rules.yaml is promoted there unchanged, so the alerts survive the
@@ -36,3 +55,11 @@ services:
   - timeline-service
   - fanout-worker
   - web
+
+# Service name to IAM role ARN, for the eks.amazonaws.com/role-arn annotation.
+#
+# Empty here and empty in Tier L, which has no IAM at all. `sandbox-up.sh` fills
+# it from the `irsa_role_arns` Terraform output at bootstrap. A service absent
+# from this map gets no annotation and falls back to whatever the node provides
+# -- which, unless enable_node_role_fallback was set, is nothing.
+irsaRoleArns: {}

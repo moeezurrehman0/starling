@@ -1,0 +1,36 @@
+# The fan-out worker — Tier S. A stream consumer with no inbound traffic.
+name: fanout-worker
+port: 8084
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/fanout-worker
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+# Single replica for the same reason as the indexer: the consumer does not
+# coordinate shard ownership between replicas, so a second pod fans every tweet
+# out twice. Making that a property of the deployment rather than of a comment is
+# the only reliable protection.
+replicaCount: 1
+
+# No Service. Nothing calls it; it reads a stream. Rendering a Service here would
+# create a DNS name that resolves to a pod nobody should address, which is how a
+# "temporary" direct call gets written six months later.
+service:
+  enabled: false
+
+networkPolicy:
+  allowFrom: []
+  # Empty. In dev this was [localstack] because DynamoDB Streams and tables were
+  # in-cluster pods; here they are external and reached through allowExternalEgress
+  # in values.yaml, not through a podSelector.
+  allowTo: []
+
+env:
+  AWS_REGION: us-east-1
+  # No DYNAMODB_ENDPOINT — absent so the SDK uses the real regional endpoint. See
+  # user-service.yaml for why it is omitted rather than emptied.
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  FANOUT_ENABLED: "true"
+  # Absent, not set — the consumer discovers the stream ARN from the table. See
+  # tweet-service.yaml for the full reason.

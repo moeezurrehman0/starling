@@ -6,6 +6,24 @@
 # ArgoCD app at this chart" a template error instead of a data-loss incident.
 tier: dev
 
+# Which of the three backing services to install.
+#
+# This chart used to be all-or-nothing, and that coarseness is what produced the
+# defect this flag exists to fix. Tier S needs the caches -- there is no
+# ElastiCache in the playground -- but it does *not* need LocalStack or the
+# Postgres pod, because `terraform apply` has just created nine real DynamoDB
+# tables and an RDS instance. Bundling all three behind one switch meant the
+# only way to get Redis in the sandbox was to also get a DynamoDB impersonator,
+# and once it was running, every service was pointed at it. The sandbox would
+# then have authenticated to AWS through IRSA and spoken to a pod that ignores
+# credentials entirely. See the tier table's rows 6, 6b and 7, which state
+# plainly that Tier S uses real DynamoDB, real RDS and in-cluster Redis --
+# a combination the old flag could not express.
+components:
+  redis: true
+  postgres: true
+  localstack: true
+
 # Two caches, deliberately configured differently. The values mirror compose.yaml
 # exactly; see the comments there and ADR-0013 for why the policies differ.
 #

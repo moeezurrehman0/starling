@@ -1,0 +1,75 @@
+# Tier S web frontend. The one file where the sandbox must diverge from dev on the
+# ingress path: dev uses the nginx IngressClass, which exists only on kind.
+# sandbox-up.sh installs the AWS Load Balancer Controller and nothing installs
+# nginx, so a `nginx` class in Tier S leaves the Ingress with no controller to
+# reconcile it and there is no way into the product at all — it would come up
+# Synced and Healthy with no route to the browser.
+name: web
+port: 3000
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/web
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+# Not a Spring Boot service, so the actuator paths do not exist. Next's own
+# health route is the readiness signal, and there is no separate liveness
+# endpoint to point at -- using the same path for both is honest here, because
+# the frontend has no dependency it can be "not ready but alive" for.
+probes:
+  livenessPath: /api/health
+  readinessPath: /api/health
+
+metrics:
+  # Next.js exposes no Prometheus endpoint. Scraping it yields a 404 target and
+  # a TargetDown alert that can never be resolved.
+  enabled: false
+
+jvm:
+  # No JVM. The chart still renders JAVA_TOOL_OPTIONS; Node ignores it.
+  maxRamPercentage: 70.0
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 384Mi
+
+networkPolicy:
+  allowFrom: []
+  allowTo: [gateway]
+
+ingress:
+  enabled: true
+  # alb, not nginx. The AWS Load Balancer Controller is the only ingress
+  # controller sandbox-up.sh installs.
+  className: alb
+  # Empty, so the ALB answers on its own generated hostname. There is no domain in
+  # the sandbox to put here — Route53 and ACM are not available (gap register rows
+  # 11), so a host name would have nothing to resolve it and no certificate to
+  # match it.
+  host: ""
+  annotations:
+    # Internet-facing so the demo is reachable from a browser, and IP target-type
+    # because the EKS pods are the targets directly. This is the shape of
+    # prod/web.yaml with everything that needs ACM, Route53 or WAF removed: no
+    # HTTPS listener, no ssl-redirect, no certificate ARN.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # HTTP only. There is no TLS in front of the sandbox, because ACM is not
+    # available here (gap register row 11) and a self-signed certificate on a
+    # disposable 180-minute cluster buys nothing. Tier P adds the HTTPS listener
+    # and ssl-redirect; this deliberately does not.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+env:
+  # The browser never uses this. It is the server component's own address for the
+  # edge, so everything the frontend knows about the backend is this one URL.
+  API_BASE: http://gateway:8080
+  HOSTNAME: 0.0.0.0
+  # There is no TLS in front of the sandbox, so the session cookie cannot be
+  # Secure or the browser discards it -- silently, and in a way that still renders
+  # the post-login page as signed in. Secure defaults ON in the application
+  # precisely so that disabling it has to be written down somewhere a reviewer can
+  # see. Tier P sets nothing here and therefore gets Secure.
+  SESSION_COOKIE_SECURE: "false"

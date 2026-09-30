@@ -37,3 +37,12 @@ output "node_group_name" {
   description = "Managed node group name."
   value       = aws_eks_node_group.this.node_group_name
 }
+
+output "node_role_name" {
+  description = <<-EOT
+    The node group role's name, so a caller can attach the application-permission
+    fallback to it when IRSA is unavailable. Exposed as a name rather than only an
+    ARN because `aws_iam_role_policy` takes the name.
+  EOT
+  value       = local.node_role_name
+}

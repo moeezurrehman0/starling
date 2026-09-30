@@ -7,8 +7,11 @@ blocks. A guard written directly in _guard.tpl lints clean, renders nothing and
 protects nothing, which is worse than having no guard at all.
 */}}
 {{- define "dev-infra.guard" -}}
-{{- if ne .Values.tier "dev" -}}
+{{- if not (has .Values.tier (list "dev" "sandbox")) -}}
 {{- fail "dev-infra is ephemeral and unreplicated; it must never be installed outside Tier L or Tier S" -}}
+{{- end -}}
+{{- if and (eq .Values.tier "sandbox") (or .Values.components.localstack .Values.components.postgres) -}}
+{{- fail "dev-infra: tier=sandbox with localstack or postgres enabled. Tier S has real DynamoDB and real RDS; installing an impersonator alongside them is how the two were conflated in the first place, and the failure is silent -- the application works, against the wrong datastore." -}}
 {{- end -}}
 {{- end -}}
 

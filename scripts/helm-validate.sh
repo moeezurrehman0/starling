@@ -15,7 +15,7 @@ set -euo pipefail
 # missing value is treated as a finding rather than as an abort.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_VERSION="${K8S_VERSION:-1.29.0}"
-ENVS=(dev prod)
+ENVS=(dev sandbox prod)
 SERVICES=(gateway user-service tweet-service tweet-indexer timeline-service fanout-worker web)
 
 pass=0
@@ -134,8 +134,14 @@ check_fails "image.tag=latest is rejected" \
     -f "$ROOT/deploy/envs/dev/values.yaml" -f "$ROOT/deploy/envs/dev/gateway.yaml" \
     --set image.tag=latest
 
-check_fails "dev-infra refuses a non-dev tier" \
+check_fails "dev-infra refuses a tier that is neither dev nor sandbox" \
   helm template x "$ROOT/deploy/charts/dev-infra" --set tier=prod
+
+check_fails "dev-infra refuses LocalStack in the sandbox tier" \
+  helm template x "$ROOT/deploy/charts/dev-infra" --set tier=sandbox --set components.localstack=true
+
+check_fails "dev-infra refuses Postgres in the sandbox tier" \
+  helm template x "$ROOT/deploy/charts/dev-infra" --set tier=sandbox --set components.postgres=true
 
 check_fails "app-of-apps refuses an empty repoURL" \
   helm template x "$ROOT/deploy/argocd"
@@ -167,6 +173,54 @@ for env in "${ENVS[@]}"; do
   done
 done
 ok "no PDB deadlocks, no HPA/replicas conflicts"
+
+# The control for S78. An overlay that points a real cluster at an in-cluster
+# impersonator of AWS does not fail: every pod is Running, ArgoCD is Synced and
+# Healthy, the product works end to end, and the only symptom is that the real
+# tables stay empty. Nothing in a schema check, a lint, or `terraform plan` can
+# see it, because every object involved is individually valid. This loop is the
+# only place the mistake is visible, so it is asserted here for every
+# environment that is not Tier L.
+#
+# The summary PASS is conditional on the loop having found nothing. An
+# unconditional one prints a green tick directly underneath the red line it is
+# summarising, which is the S60 shape this repository exists to catch.
+before=$fail
+for env in "${ENVS[@]}"; do
+  [ "$env" = "dev" ] && continue
+  for svc in "${SERVICES[@]}"; do
+    out="/tmp/render-$env-$svc.yaml"
+    if grep -q "DYNAMODB_ENDPOINT" "$out"; then
+      bad "$env/$svc — renders DYNAMODB_ENDPOINT; a real cluster would talk to an impersonator"
+    fi
+    if grep -qi "localstack" "$out"; then
+      bad "$env/$svc — references localstack outside Tier L"
+    fi
+    if grep -qE "jdbc:postgresql://postgres:" "$out"; then
+      bad "$env/$svc — points at the in-cluster Postgres rather than the managed database"
+    fi
+  done
+done
+[ "$fail" -eq "$before" ] &&
+  ok "no non-dev environment resolves AWS to an in-cluster impersonator"
+
+# T2's control. Tier S installs the AWS Load Balancer Controller and nothing
+# installs nginx, so an Ingress asking for the nginx class is admitted, stays
+# ADDRESS-less forever, and the failure reads as "the demo has no URL".
+before_ing=$fail
+for env in "${ENVS[@]}"; do
+  [ "$env" = "dev" ] && continue
+  for svc in "${SERVICES[@]}"; do
+    out="/tmp/render-$env-$svc.yaml"
+    grep -q "kind: Ingress" "$out" || continue
+    if grep -qE "ingressClassName: *nginx" "$out"; then
+      bad "$env/$svc — Ingress asks for the nginx class, which no non-dev tier installs"
+    fi
+  done
+done
+[ "$fail" -eq "$before_ing" ] &&
+  ok "no non-dev Ingress asks for an ingress class its tier does not install"
+
 
 # Every service that reaches Redis must name both tiers, and they must differ.
 # Pointing the celebrity cache at the ordinary one produces no error at all: the

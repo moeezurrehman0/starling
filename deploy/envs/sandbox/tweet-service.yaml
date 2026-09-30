@@ -1,0 +1,47 @@
+# Tier S tweet-service. Real DynamoDB and real S3 (gap register rows 6, 12) over
+# the regional endpoints, and the RDS search index (row 6b) whose URL arrives at
+# runtime through starling-secrets.
+name: tweet-service
+port: 8082
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/tweet-service
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+networkPolicy:
+  allowFrom: [gateway, timeline-service]
+  # user-service only. In dev this also listed postgres and localstack, both of
+  # which were in-cluster pods; here RDS, DynamoDB and S3 are all external and are
+  # covered by allowExternalEgress plus the allowCidrs entry for RDS in
+  # values.yaml, not by a podSelector.
+  allowTo: [user-service]
+
+env:
+  AWS_REGION: us-east-1
+  # No DYNAMODB_ENDPOINT — absent so the SDK uses the real regional endpoint. See
+  # user-service.yaml for why it is omitted rather than emptied.
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  # SEARCH_DB_URL is deliberately absent, not set. The RDS endpoint is an output
+  # of the `terraform apply` that runs earlier in the session, so no correct value
+  # can be committed here — it would be a placeholder or another account's host.
+  # sandbox-up.sh injects the real JDBC URL into starling-secrets, which reaches
+  # the pod through envFrom. This is where it comes from; there is nothing to put
+  # here.
+  SEARCH_DB_USER: starling
+  MEDIA_BUCKET: starling-media
+  USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
+  # OFF, and this is the single most consequential value in this directory.
+  #
+  # The indexer is a DynamoDB Streams consumer with no coordination between
+  # replicas: every replica reads every shard. Two pods therefore index every
+  # tweet twice, and an HPA scale-out silently multiplies it. The indexer runs as
+  # its own single-replica Deployment (tweet-indexer.yaml); the request-serving
+  # pods leave it off.
+  SEARCH_INDEXER_ENABLED: "false"
+  # Absent, not set. In dev this was "" and StreamArns discovered the ARN from the
+  # table. Here the consumer discovers it the same way; a literal ARN embeds the
+  # table's creation timestamp and points at a stream that no longer exists after
+  # the first teardown, and the failure mode is an empty timeline, not an error.
+  # sandbox-up.sh deliberately does not inject it either — see
+  # infra/terraform/modules/dynamodb/outputs.tf.

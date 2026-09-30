@@ -46,8 +46,20 @@ Have ready:
 
 - the playground's temporary credentials exported (`AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`)
-- images already pushed to ECR by CI, or 8 spare minutes to push them
+- images already published to GHCR by CI. Nothing in this repository pushes to
+  ECR; the Terraform root creates the repositories and the manifests read
+  `ghcr.io/moeezurrehman0/starling/*`, so the ECR repositories are, today, an
+  unused artefact. All six packages are public, so no pull secret is required --
+  and there is no `imagePullSecret` anywhere in the tree, so flipping one to
+  private breaks Tier S with `ImagePullBackOff` and no other warning.
 - a second terminal for `make sandbox-status`
+- an answer to "how will a pod get AWS credentials". `sandbox-up` asks Terraform
+  for `pod_aws_identity` before bootstrapping ArgoCD and **stops** if the answer
+  is `none`. The default is `irsa`; if the playground denies `iam:CreateRole` or
+  `iam:CreateOpenIDConnectProvider`, re-apply with `enable_irsa=false` and
+  `enable_node_role_fallback=true`, and set `networkPolicy.allowImds=true` in
+  `deploy/envs/sandbox/values.yaml`. That combination is a real loss of
+  per-service isolation and is meant to be inconvenient to reach. Class S78.
 
 > **The credential guard.** `sandbox-up` refuses to run if the credentials look
 > like a long-lived IAM user rather than an assumed role, and the refusal is not
@@ -60,7 +72,7 @@ Have ready:
 
 | Minutes | Stage | Command | What must be true at the end |
 |---|---|---|---|
-| 0–20 | Infrastructure | `make sandbox-up` | 8 DynamoDB tables, ECR, S3, RDS, EKS control plane up |
+| 0–20 | Infrastructure | `make sandbox-up` | 9 DynamoDB tables, ECR, S3, RDS, EKS control plane up |
 | 20–22 | Access | *(same command)* | `kubectl get nodes` shows 3 × `t3.medium` Ready |
 | 22–28 | Platform | *(same command)* | metrics-server; ALB controller **or** a logged NodePort fallback |
 | 28–35 | GitOps | *(same command)* | ArgoCD healthy, app-of-apps synced, pods Running |
@@ -135,7 +147,7 @@ pods have real nodes to land on.
 so Karpenter is Tier P only. That is gap register rows 4 and 5, and stating it
 out loud is better than implying the cap is a design choice.
 
-### 4. A promotion PR canaries to prod (85–110)
+### 4. A promotion PR canaries in the sandbox (85–110)
 
 Start traffic **first**, and leave it running for the whole promotion:
 
@@ -143,8 +155,14 @@ Start traffic **first**, and leave it running for the whole promotion:
 make load-test PEAK_RPS=10 DURATION=25m &   # must outlive the rollout
 ```
 
-Then merge the promotion PR. ArgoCD syncs `prod`, Argo Rollouts steps 25% →
+Then merge the promotion PR. ArgoCD syncs `sandbox`, Argo Rollouts steps 20% →
 50% → 100%, and inline analysis queries Prometheus at every step.
+
+There is no `prod` Application in Tier S and there never will be -- Tier P is
+written and never applied, so a runbook step that syncs it could not have been
+performed. Earlier drafts of this section said `prod` and `25% → 50% → 100%`;
+both were transcribed from the Tier P values file rather than from the overlay
+the session actually runs.
 
 The background load is not decoration. The analysis fails closed on an empty
 result set — deliberately, because gap class S32 was a canary promoted

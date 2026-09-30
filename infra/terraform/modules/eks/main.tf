@@ -11,6 +11,11 @@ data "aws_partition" "current" {}
 locals {
   cluster_role_arn = var.create_cluster_role ? aws_iam_role.cluster[0].arn : var.existing_cluster_role_arn
   node_role_arn    = var.create_node_role ? aws_iam_role.node[0].arn : var.existing_node_role_arn
+  # An ARN's last path segment is the role name. Derived rather than branched so
+  # it is correct for both the created and the pre-existing role, including the
+  # playground case where the supplied ARN carries a path.
+  node_role_name = element(split("/", local.node_role_arn), length(split("/", local.node_role_arn)) - 1)
+
   arn_prefix       = "arn:${data.aws_partition.current.partition}:iam::aws:policy"
 }
 

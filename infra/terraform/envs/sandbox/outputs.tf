@@ -39,3 +39,34 @@ output "nodes_are_public" {
   description = "True here. Surfaced as an output so it appears in every apply rather than only in a document nobody re-reads."
   value       = module.network.nodes_are_public
 }
+
+output "table_prefix" {
+  description = <<-EOT
+    The prefix every DynamoDB table name carries in this root.
+
+    Exported because the application needs it and cannot derive it. Tier L runs
+    unprefixed tables, so the dev overlay sets DYNAMODB_TABLE_PREFIX to the empty
+    string; carrying that value into Tier S names tables that do not exist, and
+    the SDK reports ResourceNotFoundException on the first write rather than at
+    startup -- which is to say, during the demo rather than during provisioning.
+  EOT
+  value       = "${var.name}-"
+}
+
+output "pod_aws_identity" {
+  description = <<-EOT
+    How pods will obtain AWS credentials, as one word, so the bootstrap can check
+    it and stop rather than discovering the answer at demo time.
+
+    `irsa`          -- per-service roles, the intended state.
+    `node-role`     -- the coarse fallback; every pod holds every permission.
+    `none`          -- neither. Pods cannot reach DynamoDB or S3 at all. This was
+                       the silent state before ADR-0014, survivable only because
+                       Tier S was accidentally talking to LocalStack.
+  EOT
+  value = (
+    var.enable_irsa && var.enable_eks ? "irsa" :
+    var.enable_node_role_fallback && var.enable_eks ? "node-role" :
+    "none"
+  )
+}
