@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S79`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S80`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S79`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S80`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1889,6 +1889,61 @@ and every managed overlay is bumped in one pass. Proven two-sided by adding a
 then reverting. The stale sandbox tags were brought to dev's current SHA in the
 same change, and all three images spot-checked with `docker manifest inspect`
 rather than assumed.
+
+**S80. The rehearsal broke the performance: `--dry-run` started the session
+clock.** Found by doing what the runbook says to do. `make sandbox-plan`
+reported every stage as *6878 minutes behind budget* — a number so absurd it
+was nearly dismissed as dry-run noise, which is how it had survived.
+
+`sandbox-up` records `started_at` in `.sandbox-session` and measures every
+stage against it. The write happened before the `DRY_RUN` branch, so a dry run
+created the file — on the same run that prints **"DRY RUN — nothing will be
+created"**. The file is gitignored, so it persists on the operator's machine,
+and `docs/08-session-runbook.md` instructs you to run `make sandbox-plan`
+*the day before* and describes it as touching nothing.
+
+So the documented preparation poisons the thing it prepares. The next day the
+real run inherits yesterday's clock, prints one non-fatal warning that scrolls
+past, and then reports every stage as a day behind. Nothing fails: Terraform
+still applies, EKS still comes up, the demos still work. What is lost is the
+instrument — and the budget report is the *only* input to the runbook's one
+in-flight decision, "if you are already behind at minute 45, drop
+observability rather than the demo". It would be wrong from the first stage,
+in the alarming direction, teaching the operator to ignore it within two
+minutes of a session that cannot be repeated.
+
+That is the whole class in one line: not a broken check, a check that lies
+confidently enough to be tuned out.
+
+*Fix:* two halves, because either alone is insufficient. A dry run now points
+`SANDBOX_STATE` at a throwaway file rather than making `state_put` a no-op —
+the dry run must still exercise the resume logic it exists to exercise, and a
+no-op would have made it stop testing the code it claims to test. And state
+that survives anyway — an interrupted run, a slept laptop — is now **refused**
+rather than measured from: a resumed session is minutes old, so one older than
+the entire 180-minute budget cannot be this one. It dies with the exact
+command to clear it. A session thirty minutes old still resumes with a warning,
+which is the case the resumability property exists for.
+
+The redirect is conditional on the caller not having chosen a state file
+themselves. The first version was not, and it broke the self-test's own
+isolation — two runs looked like two independent first runs. Caught because
+the suite went 47 → 46, which is the argument for having it.
+
+*Control:* six cases in `scripts/sandbox-selftest.sh` — a dry run leaves no
+state file; a day-old session is refused, says how to clear itself, and does
+not provision; a thirty-minute-old session is *not* refused and resumes.
+Proven two-sided by reverting each half separately: removing the redirect
+fails one case, removing the refusal fails three.
+
+One further note, because it is the same failure at a smaller scale. The first
+draft of these assertions called `ok`, which does not exist in that file — the
+helper is `pass`. Under `set -uo pipefail` without `-e`, the call wrote to
+stderr and was counted as neither a pass nor a failure. The suite reported
+`52 passed, 0 failed` and looked healthy while one assertion had silently
+evaporated. It was caught only by counting: six were added, five appeared.
+Assertion helpers that vanish quietly are the S-class hazard living inside the
+S-class detector, and the arithmetic is the only thing that sees it.
 
 ## Maintenance
 

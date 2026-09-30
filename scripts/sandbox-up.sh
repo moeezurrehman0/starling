@@ -40,6 +40,12 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
+# Whether the caller chose the state file themselves, recorded before the
+# library supplies its default. The dry-run redirect below must not overrule a
+# deliberate choice -- the self-test makes one, and silently ignoring it would
+# make two runs look like two independent first runs.
+STATE_WAS_EXPLICIT=0
+[ -n "${SANDBOX_STATE+x}" ] && STATE_WAS_EXPLICIT=1
 # shellcheck source=scripts/sandbox-lib.sh
 . scripts/sandbox-lib.sh
 
@@ -56,6 +62,18 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# A dry run promises to touch nothing, and the session state file is something.
+# Rather than making state_put a no-op -- which would stop the dry run from
+# exercising the resume logic it exists to exercise -- point the state at a
+# throwaway file. Every code path below stays identical; nothing durable is
+# written. Without this, the runbook's own "run sandbox-plan the day before"
+# step seeds started_at, and the real session then reports every stage as a
+# day behind budget. Class S80.
+if [ "${DRY_RUN}" = "1" ] && [ "${STATE_WAS_EXPLICIT}" = "0" ]; then
+  SANDBOX_STATE="$(mktemp)"; rm -f "${SANDBOX_STATE}"
+  trap 'rm -f "${SANDBOX_STATE}"' EXIT
+fi
 
 # The budget from the plan, in minutes-from-session-start that each stage
 # should have *finished* by. Overrunning is not fatal -- it is reported, which
@@ -97,6 +115,20 @@ report_budget() {
 
 # ---------------------------------------------------------------------------
 preflight
+
+if [ -f "${SANDBOX_STATE}" ]; then
+  # A resumed session is minutes old. One older than the whole budget cannot be
+  # the session you are in, so every budget number derived from it is wrong --
+  # and wrong in the alarming direction, which teaches you to ignore the one
+  # signal the demo window depends on. Refuse rather than warn. Class S80.
+  stale_min=$(( $(session_elapsed_s) / 60 ))
+  if [ "${stale_min}" -gt "${SANDBOX_BUDGET_MIN}" ]; then
+    warn "session state at ${SANDBOX_STATE} records a start ${stale_min} minutes ago,"
+    warn "which is longer than the ${SANDBOX_BUDGET_MIN}-minute budget. It is left over"
+    warn "from an earlier run, and every budget report would be measured from it."
+    die  "remove it to start a fresh session:  rm -f ${SANDBOX_STATE}"
+  fi
+fi
 
 if [ -f "${SANDBOX_STATE}" ] && [ -z "${FROM}" ]; then
   warn "a session is already recorded (started $(fmt_duration "$(session_elapsed_s)") ago)."

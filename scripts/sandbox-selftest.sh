@@ -156,6 +156,45 @@ fi
 OUT="$(sb bash scripts/sandbox-up.sh --dry-run)"
 check "a second run warns a session exists"     "${OUT}" "already recorded"
 
+# S80. A dry run that writes the session clock poisons the real session: the
+# runbook tells you to run `make sandbox-plan` the day before, so `started_at`
+# is a day old when it matters, every stage reports itself hundreds of minutes
+# behind, and the budget signal the demo window depends on is noise from the
+# first line. Nothing fails -- you just lose the instrument. Two properties,
+# because the fix has two halves and either alone is insufficient.
+DEFAULT_STATE=".sandbox-session"
+PRE_EXISTING=0; [ -f "${DEFAULT_STATE}" ] && PRE_EXISTING=1
+if [ "${PRE_EXISTING}" = "0" ]; then
+  env PATH="${STUB}:${PATH}" AWS_REGION=us-east-1 \
+      bash scripts/sandbox-up.sh --dry-run >/dev/null 2>&1
+  if [ -f "${DEFAULT_STATE}" ]; then
+    fail "a dry run wrote ${DEFAULT_STATE}, so it does not touch nothing"
+    rm -f "${DEFAULT_STATE}"
+  else
+    pass "a dry run leaves no session state behind"
+  fi
+else
+  pass "a dry run leaves no session state behind (skipped: state file in use)"
+fi
+
+# The other half: state that survived anyway -- an interrupted run, a machine
+# that slept -- must be refused rather than silently measured from. A resumed
+# session is minutes old; one older than the entire budget cannot be this one.
+printf 'started_at=%s\nregion=us-east-1\nprefix=starling\n' \
+  "$(( $(date +%s) - 60 * 60 * 24 ))" > "${STATE}"
+OUT="$(sb bash scripts/sandbox-up.sh)"
+check "a session older than the budget is refused" "${OUT}" "longer than the 180-minute budget"
+check "and it says how to clear it"                "${OUT}" "rm -f"
+refute "and it does not proceed to provision"      "${OUT}" "terraform apply"
+
+# ...but a genuinely resumable session, minutes old, must still be resumable.
+printf 'started_at=%s\nregion=us-east-1\nprefix=starling\n' \
+  "$(( $(date +%s) - 60 * 30 ))" > "${STATE}"
+OUT="$(sb bash scripts/sandbox-up.sh)"
+refute "a 30-minute-old session is not refused"    "${OUT}" "longer than the"
+check  "it resumes and warns instead"              "${OUT}" "already recorded"
+rm -f "${STATE}"
+
 # ---------------------------------------------------------------------------
 head_ "credential guard"
 
