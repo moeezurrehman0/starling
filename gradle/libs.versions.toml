@@ -5,6 +5,11 @@ springBoot = "4.1.1"
 # rather than waiting for the next Boot release because the image scan is a gate
 # and the only alternatives are shipping the CVEs or suppressing them.
 tomcat = "11.0.26"
+# Ahead of the Jackson 3 line Boot 4.1.1 manages (3.1.5), which carries
+# CVE-2026-68497 -- a HIGH, unbounded numeric parsing, CPU denial of service,
+# fixed in 3.1.6. Held on the 3.1 line rather than jumping to 3.2 so the only
+# thing that changes is the fix.
+jackson = "3.1.7"
 jspecify = "1.0.1"
 testcontainers = "2.0.5"
 checkstyle = "14.1.0"
@@ -22,6 +27,10 @@ awsSdk = "2.55.5"
 # Boot 4.1.1 already manages Testcontainers 2.0.5, so no separate BOM is needed.
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
 aws-sdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awsSdk" }
+# Jackson 3. Boot's BOM already imports this one; it is named here only so the
+# version can be raised ahead of it. A BOM rather than per-artefact constraints
+# because Jackson's modules must resolve as a set.
+jackson-bom = { module = "tools.jackson:jackson-bom", version.ref = "jackson" }
 
 # --- Spring Boot 4 modular starters ----------------------------------------
 # Boot 4 removed the umbrella starters: there is no spring-boot-starter-web.

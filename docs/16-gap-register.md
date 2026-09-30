@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S74`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S76`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S74`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S76`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1571,6 +1571,106 @@ the promotion window, with the same warm-up the drill uses.
 aborted because nobody was looking at it". Both surface as `RolloutAborted` with a failed
 metric, and the difference is an empty result set versus a populated one that breached its
 threshold. The abort message could say which; it does not.
+
+---
+
+**S75. The gate written to catch S69 rejected six perfectly good images on its first real
+run, and its ten tests had all passed.** The multi-arch publish worked. Twelve builds
+across two architectures succeeded, including every arm64 one on a native runner; the
+manifest lists were created correctly and contained exactly what they should. Then the
+platform assertion — the control written specifically so that S69 could not recur —
+refused all six:
+
+    ghcr.io/.../gateway:sha-a4dc66d is missing platform(s): linux/amd64 linux/arm64
+
+Both of them, on a list that demonstrably contained both. The pattern was anchored
+flush-left:
+
+    grep -qE "^Platform:[[:space:]]+${want}$"
+
+and `docker buildx imagetools inspect` indents `Platform:` beneath `Manifests:`. It matched
+nothing, on any input, ever.
+
+The defect is not the regex. It is that `manifest-merge-selftest.sh` asserted eleven cases
+in both directions and could not see it, because I wrote the stub registry's output **from
+memory instead of from a transcript**. The fixture emitted `Platform:` flush-left, the code
+looked for it flush-left, and the two agreed with each other perfectly while both
+disagreed with the tool. A two-sided test is only two-sided with respect to its fixture; if
+the fixture is wrong in the same direction as the code, the failing-direction cases fail
+for the intended reason and prove nothing. The fixture was also missing the
+`unknown/unknown` attestation manifests that `provenance: mode=max` interleaves into every
+real list, so it was wrong about the shape as well as the whitespace.
+
+The irony is worth stating rather than softening. The header of that self-test warns about
+"assertions that were accepted, ran, and could never have fired", and lists two. It was
+written by someone — me — who then committed a third in the same file, one paragraph below
+the warning. Knowing the failure class is not protection against it. The only thing that
+would have caught this is the thing I did not do: run the real command once, or paste its
+real output in.
+
+It failed in the safe direction, and that is worth crediting precisely because it was not
+by design. The gate blocked the publish rather than waving through a broken image, so no
+bad artefact shipped and `verify` correctly reported that five selected services published
+nothing. But "fails closed" was luck here, not a property anyone reasoned about — a
+mis-anchored pattern in an absence check would have passed everything instead.
+
+The cost was real. No image has been published since; `deploy/envs/dev` still pins the tags
+from before the multi-arch change, the `bump` job never ran, and the images on `main` are
+still the amd64-only ones this whole sequence set out to replace.
+
+*Control:* the pattern tolerates leading whitespace, and — the part that actually matters —
+the stub now emits output transcribed verbatim from run 36183635154, attestation manifests
+and all. There is an eleventh case that feeds the script a literal copy of that transcript
+and asserts it is accepted, so a future edit cannot quietly re-align the fixture with a
+wrong pattern. Verified two-sided by hand: restoring the old anchor turns 11 passed into
+6 passed, 5 failed, including that case.
+
+*Gap:* every other stub in this repository was also written from memory, and the same
+question applies to each of them — `publish-verify-selftest.sh`, `probe-selftest.sh`,
+`sandbox-selftest.sh` all fake a tool's output rather than replaying a capture. Nothing
+asserts that a fixture resembles the thing it imitates, and nothing can, offline. The
+honest mitigation is a rule rather than a gate: a stub's output is transcribed from a real
+invocation and the run it came from is named in a comment. That is now done here and
+nowhere else.
+
+---
+
+**S76. `main` had been red for two days and the way anyone found out was an unrelated
+pull request.** Pushing the S75 fix turned all five image jobs red — a change that touches
+one shell script and one document cannot break a container scan, so the first job was to
+disprove my own PR. It was not the cause: the same five jobs had failed identically on
+`main` two days earlier, on the release commit, and nothing had been done about it.
+
+The finding was real. `tools.jackson.core:jackson-databind` 3.1.5, which Boot 4.1.1's BOM
+imports, had acquired CVE-2026-68497 — a HIGH, unbounded numeric parsing, CPU denial of
+service, fixed in 3.1.6. The scanner was doing exactly its job. It is now held at 3.1.7 by
+importing the Jackson BOM after Boot's, which is the same manoeuvre already used for
+Tomcat in S50, and for the same reason: the fix exists upstream and the BOM has not caught
+up. A BOM rather than per-artefact constraints because Jackson's modules have to resolve
+as a set — pinning `databind` alone would leave `core` a minor behind it.
+
+The dependency bump is the boring half. The interesting half is that nobody was told.
+S50's gap paragraph already says it out loud — "the vulnerability database is still
+fetched at run time and still moves, so the gate's verdict can change without any commit"
+— and the consequence was written down and then not acted on. There is no scheduled
+workflow in this repository at all. The image jobs are behind a path filter, so a release
+commit that touches only a changelog skips them entirely, and a commit that does run them
+and fails produces a red tick on `main` that no human has any reason to look at. A gate
+whose answer changes on its own needs something that asks it on a timer; otherwise the
+discovery mechanism is "the next contributor is inconvenienced", which is what happened,
+and which only works while there is a next contributor.
+
+*Control:* Jackson held at 3.1.7 in `gradle/libs.versions.toml`, applied in
+`starling.spring-service-conventions.gradle.kts`. Verified by scanning all five service
+jars with the same scanner image CI uses, before and after: one HIGH in `gateway` before,
+zero across all five after. `./gradlew build` passes.
+
+*Gap:* nothing runs the scan on a schedule, and nothing notifies on a red `main`. Both are
+small to add and neither is added here, because this PR exists to unblock something else
+and folding a third concern into it would be the same mistake in a different direction.
+Until then, "the scan is green" means "the scan was green when someone last pushed", and
+the gap between those two statements grows at exactly the rate the vulnerability database
+moves.
 
 ---
 
