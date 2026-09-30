@@ -16,7 +16,7 @@ locals {
   # playground case where the supplied ARN carries a path.
   node_role_name = element(split("/", local.node_role_arn), length(split("/", local.node_role_arn)) - 1)
 
-  arn_prefix       = "arn:${data.aws_partition.current.partition}:iam::aws:policy"
+  arn_prefix = "arn:${data.aws_partition.current.partition}:iam::aws:policy"
 }
 
 # ---------------------------------------------------------------------------
