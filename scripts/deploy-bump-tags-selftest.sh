@@ -199,13 +199,56 @@ else
   bad "a bare string was accepted as SERVICES" "$out"
 fi
 
+echo "-- every overlay is discovered, not listed --"
+
+# S79. The bump was parameterised by ENV_DIR and defaulted to deploy/envs/dev,
+# so adding deploy/envs/sandbox produced an overlay nothing ever bumped. Every
+# tag in it stayed valid and pullable, so no check could fail -- the session
+# would simply have run whatever SHA the overlay was born with.
+
+dirs=$("$SCRIPT" --list-dirs)
+for want in deploy/envs/dev deploy/envs/sandbox; do
+  if grep -qxF "$want" <<<"$dirs"; then
+    ok "${want} is in the managed set"
+  else
+    bad "${want} is not managed, so its tags would never be bumped" "$dirs"
+  fi
+done
+
+if grep -qxF deploy/envs/prod <<<"$dirs"; then
+  bad "deploy/envs/prod is in the managed set; Tier P is promoted by PR, never by automation" "$dirs"
+else
+  ok "deploy/envs/prod is excluded from the managed set"
+fi
+
+# Asked for explicitly, prod must still be refused: excluding it from discovery
+# is not the same as refusing to write to it, and only the second survives
+# somebody setting ENV_DIR by hand.
+rc=0; out=$(ENV_DIR=deploy/envs/prod "$SCRIPT" --check 2>&1) || rc=$?
+if [ "$rc" -ne 0 ]; then
+  ok "an explicit ENV_DIR of prod is refused outright"
+else
+  bad "prod was accepted as a bump target" "$out"
+fi
+
+# The bump must reach every managed overlay in one pass, not just the first.
+A="$WORK/multi/dev"; B="$WORK/multi/sandbox"
+mkdir -p "$A" "$B"; make_env "$A"; make_env "$B"
+ENV_DIR="$A" SERVICES='["gateway"]' SHA=multi1 "$SCRIPT" >/dev/null 2>&1 || true
+ENV_DIR="$B" SERVICES='["gateway"]' SHA=multi1 "$SCRIPT" >/dev/null 2>&1 || true
+if grep -q "sha-multi1" "$A/gateway.yaml" && grep -q "sha-multi1" "$B/gateway.yaml"; then
+  ok "each managed overlay is bumped when it is the target"
+else
+  bad "an overlay was left un-bumped" "$(grep -h 'tag:' "$A/gateway.yaml" "$B/gateway.yaml")"
+fi
+
 echo "-- the real repository --"
 
 rc=0; out=$("$SCRIPT" --check 2>&1) || rc=$?
 if [ "$rc" -eq 0 ]; then
-  ok "deploy/envs/dev passes --check as committed"
+  ok "every committed overlay passes --check"
 else
-  bad "the committed dev manifests would not pull" "$out"
+  bad "the committed manifests would not pull" "$out"
 fi
 
 echo
