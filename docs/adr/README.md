@@ -22,6 +22,7 @@ accepted; a change means a new record that supersedes the old one.
 | [0011](0011-dynamodb-operational-datastore.md) | DynamoDB as the operational datastore | Accepted |
 | [0012](0012-dynamodb-streams-event-transport.md) | DynamoDB Streams as the event transport | Accepted |
 | [0013](0013-split-celebrity-normal-caches.md) | Separate Redis caches for celebrity and normal users | Accepted |
+| [0014](0014-per-tier-environment-overlays.md) | One environment overlay per tier | Accepted |
 
 A superseded record is never deleted or rewritten. It keeps a banner explaining what
 replaced it and why, because the reasoning that turned out to be wrong is usually more

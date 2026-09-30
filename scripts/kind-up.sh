@@ -128,7 +128,8 @@ REPO_URL="${REPO_URL:-$(git -C "$ROOT" remote get-url origin 2>/dev/null || true
 echo
 if [ -n "$REPO_URL" ]; then
   log "bootstrapping the app-of-apps against $REPO_URL"
-  sed "s|REPO_URL_PLACEHOLDER|$REPO_URL|g" "$ROOT/deploy/argocd/root.yaml" | kubectl apply -f -
+  sed -e "s|REPO_URL_PLACEHOLDER|$REPO_URL|g" -e "s|ENV_PLACEHOLDER|dev|g" \
+    "$ROOT/deploy/argocd/root.yaml" | kubectl apply -f -
   log "ArgoCD now owns the cluster. Watch it with: kubectl get app -n argocd -w"
 else
   warn "no git remote and no REPO_URL -- skipping the ArgoCD bootstrap."

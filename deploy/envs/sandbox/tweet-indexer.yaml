@@ -1,0 +1,52 @@
+# The search indexer, as its own workload — Tier S.
+#
+# Same image as tweet-service, different role. It exists because the indexer is a
+# stream consumer that does not coordinate across replicas: running it inside the
+# request-serving Deployment means every replica indexes every tweet, and the HPA
+# turns that from a bug into a multiplier. Splitting it costs one pod and makes
+# the constraint structural rather than a comment nobody reads.
+#
+# This is the workload that most needs the RDS egress path to be right: it is the
+# only consumer of SEARCH_DB_URL, and in the sandbox's default VPC (172.31.0.0/16)
+# RDS is unreachable through allowExternalEgress alone. values.yaml re-admits that
+# range via allowCidrs; without it this pod times out connecting to the database
+# it was just handed the password for. See gap register row 6b.
+#
+# It serves no traffic, so there is no Service, no Ingress and no HPA.
+name: tweet-indexer
+port: 8082
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/tweet-service
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+# Exactly one. Not an HPA target, and not a candidate for manual scaling: two
+# replicas double-index.
+replicaCount: 1
+
+service:
+  enabled: false
+
+networkPolicy:
+  allowFrom: []
+  # Empty. In dev this was [postgres, localstack], both in-cluster pods; here RDS
+  # and DynamoDB Streams are external, reached through allowExternalEgress and the
+  # allowCidrs RDS entry in values.yaml rather than through a podSelector.
+  allowTo: []
+
+env:
+  AWS_REGION: us-east-1
+  # No DYNAMODB_ENDPOINT — absent so the SDK uses the real regional endpoint. See
+  # user-service.yaml for why it is omitted rather than emptied.
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  # SEARCH_DB_URL is deliberately absent, not set. It is a `terraform apply`
+  # output injected into starling-secrets by sandbox-up.sh and delivered via
+  # envFrom; committing any value here would be a stale placeholder. This is the
+  # one workload that reads it, so this is the one place its absence matters most —
+  # and it still belongs in the Secret, not here.
+  SEARCH_DB_USER: starling
+  USER_SERVICE_JWKS_URI: http://user-service:8081/v1/jwks
+  SEARCH_INDEXER_ENABLED: "true"
+  # Absent, not set — the consumer discovers the stream ARN from the table. See
+  # tweet-service.yaml for the full reason.

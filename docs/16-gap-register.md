@@ -37,7 +37,7 @@ Tiers: **L** local (compose + kind), **S** sandbox (KodeKloud EKS), **P** produc
 | 6b | **Search index** | RDS `db.t3.micro` PostgreSQL, single-AZ, gp2, free tier | Aurora PostgreSQL Serverless v2 (0.5–2 ACU), multi-AZ, encrypted, PITR | `database` module flags; `terraform test` asserts multi-AZ, encryption and backup retention. **The gap matters far less than it used to**: since [ADR-0011](adr/0011-dynamodb-operational-datastore.md) this database holds only derived data and can be rebuilt by scanning DynamoDB |
 | 7 | **Cache** | **two** Redis deployments in-cluster on `emptyDir` (`redis-celeb` 256 Mi `noeviction`, `redis-main` 512 Mi `allkeys-lru`); data lost on pod restart | two ElastiCache clusters with the same split, encrypted in transit and at rest | `cache` module written and parameterised per instance; a chart flag switches each endpoint, application code is unchanged. **Losing the sandbox caches now costs only latency and DynamoDB spend**, because `timelines` is durable — see [ADR-0013](adr/0013-split-celebrity-normal-caches.md) |
 | 8 | **Event transport** | **DynamoDB Streams** on the `tweets` table, consumed by a polling worker with checkpoints in DynamoDB | identical | **no gap.** The stream is a property of the table, so it exists wherever the table does — including LocalStack in Tier L. What *is* a gap: production would idiomatically use a Lambda trigger or EventBridge Pipes, and we deliberately do not, to preserve "one image, promoted unchanged". Recorded in [ADR-0012](adr/0012-dynamodb-streams-event-transport.md) |
-| 9 | **Pod → AWS identity** | shared node instance role | IRSA: one role and one service account per service, least privilege | `iam` module; `terraform test` asserts distinct roles and rejects wildcard actions |
+| 9 | **Pod → AWS identity** | IRSA where the playground permits it (`enable_irsa`, now the default), otherwise an explicit, recorded downgrade to the node instance role via `enable_node_role_fallback` — which also requires `networkPolicy.allowImds`, because the chart blocks `169.254.169.254` to stop exactly that. The two are mutually exclusive, enforced by a Terraform `check`. **This row previously read "shared node instance role" and was wrong**: the node role carries three managed EKS/ECR policies and nothing that touches DynamoDB or S3, so the fallback it described granted no access at all. Class S78 | IRSA: one role and one service account per service, least privilege | `iam` module; `terraform test` asserts distinct roles and rejects wildcard actions; `pod_aws_identity` is surfaced as an output and `sandbox-up.sh` refuses to bootstrap when it is `none` |
 | 10 | **Secrets** | Kubernetes `Secret` seeded from a gitignored `.env` | Secrets Manager + External Secrets Operator with rotation | the chart renders an `ExternalSecret` *or* a plain `Secret` behind one values flag |
 | 11 | **DNS & TLS** | raw ALB hostname or `nip.io`, self-signed certificate | Route53 zone + ACM certificate + ExternalDNS + cert-manager, HSTS | `dns` module written; **requires a domain we own — currently unresolved** |
 | 12 | **CDN** | S3 accessed directly | CloudFront + OAC, cache policy, signed URLs for private media | `storage` module flag |
@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S77`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S78`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S77`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S78`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1752,6 +1752,96 @@ cluster ran something else entirely — the tags and the cluster are not compare
 other by anything.
 
 ---
+
+**S78. Three tiers, two overlays — and the environment that borrowed another
+tier's wiring talked to an impersonator of the cloud it had just built.**
+`deploy/envs/` held `dev` and `prod`. There are three tiers.
+[ADR-0009](adr/0009-three-tier-environment-model.md) says so; `deploy/envs/dev/values.yaml`
+said "Tier L / Tier S shared values" and `deploy/argocd/root.yaml` hardcoded `root-dev`,
+so Tier S booted the Tier L overlay. Every `deploy/envs/dev/*.yaml` sets
+`DYNAMODB_ENDPOINT: http://localstack:4566` and
+`SEARCH_DB_URL: jdbc:postgresql://postgres:5432/starling_search`. On EKS those resolve
+to pods. The nine real DynamoDB tables, the real RDS instance and the real S3 bucket
+that `sandbox-up` spends its first twenty minutes creating would never have been
+touched. *Nothing fails.* Every pod is Running, ArgoCD is Synced and Healthy, the
+product works end to end, and the only observable symptom is that the tables stay
+empty — which nobody checks while demonstrating a working product. It would have
+surfaced, if at all, on the teardown sweep at minute 150, after the session was over
+and unrepeatable.
+
+Three separate defects, one root cause, and the third only became visible once the
+first was fixed:
+
+- **The datastore.** Described above. The giveaway had been sitting in
+  `scripts/sandbox-up.sh` since it was written: it injects **empty** AWS credentials
+  with a comment explaining that Tier S uses IRSA so the pod must carry no static keys.
+  That is correct, and it is IRSA pointed at a service that ignores credentials
+  entirely. Two correct-sounding statements that cannot both be true.
+- **No way in.** `deploy/envs/dev/web.yaml` asks for `ingress.className: nginx`;
+  `sandbox-up.sh` installs the AWS Load Balancer Controller; nothing anywhere installs
+  nginx. The Ingress would have been admitted and sat without an ADDRESS forever. Demo 1
+  — "the product works end to end" — had no URL, and the ALB controller installed at
+  minutes 22–28 would have reconciled nothing. This had been *seen* on kind and
+  dismissed as a Tier-L artefact on the grounds that "Tier P uses alb" — true, and
+  irrelevant, because Tier S was running neither.
+- **No credentials at all.** Pointing the overlay at real AWS exposed that nothing
+  gives a pod an identity. `enable_irsa` defaulted to **false**, and its own
+  description said pods would "fall back to the node instance role — every pod gets
+  every permission". The node role carries `AmazonEKSWorkerNodePolicy`,
+  `AmazonEKS_CNI_Policy` and `AmazonEC2ContainerRegistryReadOnly`: no DynamoDB, no S3.
+  The fallback granted nothing, and the chart's NetworkPolicy blocks `169.254.169.254`
+  by design, so it was unreachable as well as empty. Row 9 of the tier table above
+  claimed Tier S runs on "shared node instance role". That was never a state this code
+  could reach. It went unnoticed for the same reason as the other two: LocalStack does
+  not check credentials.
+
+**Why nothing caught it.** Not an absence of checks — an absence of a check that could
+disagree. `make sandbox-plan` is a `terraform plan`: it validates the infrastructure
+and never reads a Helm value. `helm-validate.sh` rendered `dev` and `prod` and asserted
+nothing about *which* AWS a rendered manifest points at. Every object involved is
+individually valid, so kubeconform cannot see it; the resources are all created
+correctly, so Terraform cannot; the product works, so a smoke test cannot. The register
+itself was one of the two disagreeing documents — rows 6, 6b, 7 and 9 describe a Tier S
+the manifests did not implement — which is worth stating plainly, because a register is
+only a control over the things somebody went and looked at.
+
+**Why it was found at all.** Because Tier S costs one unrepeatable 180-minute session
+and the checklist had to be re-derived against
+[`08-session-runbook.md`](08-session-runbook.md) before booking it. That is not a
+control, it is a lucky consequence of scarcity: had the environment been cheap, this
+would have been found on the first run in ten minutes instead of by reading. Four
+smaller errors fell out of the same re-derivation — the runbook said eight DynamoDB
+tables (there are nine), that CI pushes images to ECR (it pushes to GHCR; the ECR
+repositories Terraform creates are unused), and that demo 4 canaries to `prod` at
+25%→50%→100% (there is no `prod` Application in Tier S, and the steps are 20%→50%).
+All were transcribed from the wrong tier's files.
+
+*Fix:* `deploy/envs/sandbox/` as a first-class overlay; `root.yaml` parameterised with
+`ENV_PLACEHOLDER` so no bootstrap can silently inherit a default; `dev-infra` split into
+`components.{redis,postgres,localstack}` with the app-of-apps *deriving* the last two
+from the tier rather than reading a flag; `enable_irsa` defaulted true with a real
+`enable_node_role_fallback` behind a mutual-exclusion `check` block; endpoints that are
+outputs of an apply injected from `terraform output` instead of committed; and
+`networkPolicy.allowCidrs`, because `allowExternalEgress` excludes RFC1918 and the
+playground's default VPC is `172.31.0.0/16`, so RDS sat in the excluded range.
+See [ADR-0014](adr/0014-per-tier-environment-overlays.md).
+
+*Control:* `scripts/helm-validate.sh` now renders `sandbox` alongside `dev` and `prod`
+and fails if any non-`dev` environment renders `DYNAMODB_ENDPOINT`, mentions
+`localstack`, points at `jdbc:postgresql://postgres:`, or asks for an ingress class its
+tier does not install; the `dev-infra` guard fails outright on `tier=sandbox` with
+Postgres or LocalStack enabled; and `sandbox-up.sh` reads a new `pod_aws_identity`
+output and **dies at minute ~20** with a named reason if the answer is `none`. All four
+render assertions were proven two-sided by reintroducing the original defects
+(`DYNAMODB_ENDPOINT` into the sandbox gateway, `className: nginx` into sandbox web) and
+observing three named failures, then reverting.
+
+*Honesty:* none of this has run on EKS. What is claimed is that it renders, that
+kubeconform accepts it, that the guards refuse what they should, and that
+`terraform validate` passes. Whether a pod actually reaches DynamoDB over IRSA through
+a NetworkPolicy with an explicit VPC CIDR is **unproven**, and is the first thing
+minute 45 tests. A review is a weaker control than an execution; the invariants above
+exist because this was found by reading, and reading does not scale.
 
 ## Maintenance
 

@@ -56,9 +56,39 @@ variable "enable_irsa" {
     Create per-service IRSA roles.
 
     Requires iam:CreateRole and iam:CreateOpenIDConnectProvider, both of which the
-    playground usually denies. When false, pods fall back to the node instance
-    role -- every pod gets every permission, and the per-service isolation this
-    project is partly about simply does not exist in Tier S. Gap-register row 9.
+    playground may deny. Default is true because the alternative is not "less
+    isolation", it is no AWS access at all: this used to default to false and say
+    that pods would fall back to the node instance role, which was wrong. The node
+    role carries AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy and
+    AmazonEC2ContainerRegistryReadOnly and nothing application-shaped, so the
+    "fallback" granted no DynamoDB and no S3 -- and the chart's NetworkPolicy
+    blocks 169.254.169.254 anyway, so it was unreachable as well as empty.
+
+    That went unnoticed because Tier S ran the Tier L overlay and talked to an
+    in-cluster LocalStack, which needs no credentials. See ADR-0014 and gap
+    register row 9.
+
+    If the apply fails on iam:CreateRole or iam:CreateOpenIDConnectProvider, set
+    this false AND enable_node_role_fallback true. That is a real degradation and
+    is meant to look like one.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "enable_node_role_fallback" {
+  description = <<-EOT
+    Grant the application permissions to the node instance role instead of to
+    per-service roles, for the case where the playground denies IRSA.
+
+    Every pod on the node then holds every permission, including pods that should
+    only read. This is the isolation gap in register row 9 made real rather than
+    merely claimed, and it additionally requires networkPolicy.allowImds on the
+    service chart, because credentials arrive over the link-local address the
+    chart blocks by default.
+
+    Default false. Turning it on is a deliberate, recorded downgrade, not a
+    convenience -- and it must never be true at the same time as enable_irsa.
   EOT
   type        = bool
   default     = false

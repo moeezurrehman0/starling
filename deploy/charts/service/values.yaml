@@ -172,6 +172,33 @@ networkPolicy:
   # flag so that turning it off is a one-line experiment rather than a rewrite.
   allowExternalEgress: true
 
+  # Additional CIDRs to allow egress to, beyond the rule above.
+  #
+  # This exists because `allowExternalEgress` is not "everything outside the
+  # cluster" -- it excludes the three RFC1918 ranges, so that a rule intended to
+  # reach DynamoDB does not also grant every pod a route to every private
+  # address the VPC can see. That exclusion is correct and it has one victim:
+  # RDS. A managed database sits on a private VPC address, and in the sandbox's
+  # default VPC that address is 172.31.x.x, inside 172.16.0.0/12 -- so the
+  # search indexer is handed a password for a host the NetworkPolicy forbids it
+  # to contact. Nothing about that failure names the NetworkPolicy; it is a
+  # connection timeout.
+  #
+  # Narrow entries only. This is an escape hatch for a known endpoint, not a way
+  # to reinstate the private ranges wholesale.
+  allowCidrs: []
+
+  # Re-admit the EC2 instance metadata service.
+  #
+  # False everywhere it can be. The only supported reason to set it is the Tier S
+  # session where the playground denied IRSA and Terraform ran with
+  # enable_node_role_fallback: credentials then arrive over 169.254.169.254, and
+  # excluding it leaves the pod with no AWS access whatsoever. With IRSA in place
+  # this would let any pod borrow the node's instance role and undo per-service
+  # isolation, so it is a value that should always be accompanied by an
+  # explanation of which of those two worlds you are in.
+  allowImds: false
+
 ingress:
   enabled: false
   className: ""

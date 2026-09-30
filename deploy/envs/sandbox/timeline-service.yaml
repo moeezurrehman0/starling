@@ -1,0 +1,33 @@
+# Tier S timeline-service. Real DynamoDB (gap register row 6) over the regional
+# endpoint, and the two in-cluster Redis caches (row 7, emptyDir) that in Tier P
+# become two separate ElastiCache clusters.
+name: timeline-service
+port: 8083
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/timeline-service
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+networkPolicy:
+  allowFrom: [gateway]
+  # localstack removed — DynamoDB is external in this tier and reached through
+  # allowExternalEgress. The in-cluster peers stay: the two Redis caches are still
+  # pods here (gap register row 7), and the two backend services are in-namespace.
+  allowTo: [tweet-service, user-service, redis-main, redis-celeb]
+
+env:
+  AWS_REGION: us-east-1
+  # No DYNAMODB_ENDPOINT — absent so the SDK uses the real regional endpoint. See
+  # user-service.yaml for why it is omitted rather than emptied.
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  # Port 6379 for both. The two caches are separate Services, so each sits on the
+  # default port and only the name differs. Copying the host-side port mapping
+  # from compose (6380) here is the classic way to point the celebrity tier at the
+  # main cache and observe no error whatsoever — see ADR-0013.
+  REDIS_MAIN_HOST: redis-main
+  REDIS_MAIN_PORT: "6379"
+  REDIS_CELEB_HOST: redis-celeb
+  REDIS_CELEB_PORT: "6379"
+  TWEET_SERVICE_URL: http://tweet-service:8082
+  USER_SERVICE_URL: http://user-service:8081

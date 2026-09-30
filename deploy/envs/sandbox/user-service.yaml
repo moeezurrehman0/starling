@@ -1,0 +1,33 @@
+# Tier S user-service. Real DynamoDB (gap register row 6), reached over the real
+# regional endpoint rather than the in-cluster LocalStack the dev overlay uses.
+name: user-service
+port: 8081
+
+image:
+  repository: ghcr.io/moeezurrehman0/starling/user-service
+  # Written by CI on merge to main. Never `latest` — the chart refuses it.
+  tag: sha-ee23865000c2d0e0b3d7c44716c3353083bafa57
+
+networkPolicy:
+  # Only the gateway and the two services that resolve identity may call this.
+  # Nothing in the browser path reaches it directly.
+  allowFrom: [gateway, tweet-service, timeline-service]
+  # Empty. In dev this was [localstack] because DynamoDB was a pod in this
+  # namespace; here DynamoDB is an external regional endpoint reached through
+  # networkPolicy.allowExternalEgress in values.yaml, not through a podSelector.
+  allowTo: []
+
+env:
+  AWS_REGION: us-east-1
+  # No DYNAMODB_ENDPOINT. Its absence is what makes the SDK resolve the real
+  # regional endpoint; the dev overlay sets it to http://localstack:4566. A blank
+  # string would not mean "use the default" — it is a malformed endpoint override
+  # and fails at startup — so the key is omitted, never emptied.
+  # Empty here, as in dev, but not empty at runtime. The tables are prefixed per
+  # session and the real prefix is a `terraform apply` output; sandbox-up.sh
+  # injects it into starling-secrets, and the chart lists that Secret's envFrom
+  # after this ConfigMap's, so the injected value overrides this default. An
+  # unprefixed name would resolve to a table that does not exist and the SDK would
+  # report ResourceNotFoundException on the first write.
+  DYNAMODB_TABLE_PREFIX: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318

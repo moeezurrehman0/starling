@@ -175,3 +175,103 @@ module "irsa" {
 
   tags = local.tags
 }
+
+# ---------------------------------------------------------------------------
+# The fallback, for the session where the playground denies IRSA
+# ---------------------------------------------------------------------------
+#
+# Not a convenience. Until ADR-0014 this repository *claimed* a node-role
+# fallback in two places and implemented it in none -- the node role carries
+# three managed EKS/ECR policies and nothing that touches DynamoDB or S3. A
+# documented fallback that does not exist is worse than no fallback, because it
+# is discovered at the moment it is needed.
+#
+# The grant is deliberately coarse, and deliberately not per-service: that is
+# what "the node role" means, and pretending otherwise by splitting it would
+# hide the cost. Every pod scheduled on the node holds these permissions,
+# including a web frontend that should hold none.
+
+data "aws_partition" "current" {}
+data "aws_caller_identity" "current" {}
+
+# Two ways for a pod to reach AWS, and exactly one of them may be in effect.
+# Both at once is not additive, it is ambiguous: the SDK would resolve the web
+# identity and the isolation the IRSA roles exist to provide would be silently
+# undone by the node grant sitting underneath it.
+check "one_credential_path" {
+  assert {
+    condition     = !(var.enable_irsa && var.enable_node_role_fallback)
+    error_message = "enable_irsa and enable_node_role_fallback are mutually exclusive: the node grant would undo the per-service isolation IRSA exists to provide."
+  }
+}
+
+locals {
+  fallback_table_arns = [
+    for n in values(module.dynamodb.table_names) :
+    "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${n}"
+  ]
+}
+
+resource "aws_iam_role_policy" "node_fallback" {
+  count = var.enable_node_role_fallback && var.enable_eks ? 1 : 0
+
+  name = "${var.name}-node-application-fallback"
+  role = module.eks[0].node_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "TablesAndTheirIndexes"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:BatchGetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:DescribeTable",
+          "dynamodb:ConditionCheckItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:TransactWriteItems",
+          "dynamodb:TransactGetItems",
+        ]
+        # Indexes are addressed as a sub-resource of the table and are not
+        # covered by the table ARN alone. Omitting them fails only on the first
+        # GSI query, which is to say during the demo.
+        Resource = concat(
+          local.fallback_table_arns,
+          [for a in local.fallback_table_arns : "${a}/index/*"],
+        )
+      },
+      {
+        Sid      = "Streams"
+        Effect   = "Allow"
+        Action   = ["dynamodb:DescribeStream", "dynamodb:GetRecords", "dynamodb:GetShardIterator"]
+        Resource = [for a in local.fallback_table_arns : "${a}/stream/*"]
+      },
+      {
+        Sid    = "ListStreams"
+        Effect = "Allow"
+        # ListStreams does not accept a resource-level constraint; AWS rejects a
+        # policy that gives it one. The wildcard is the API's, not a shortcut.
+        Action   = ["dynamodb:ListStreams"]
+        Resource = "*"
+      },
+      {
+        Sid      = "MediaObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "${module.storage.bucket_arn}/*"
+      },
+      {
+        Sid      = "MediaBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
+        Resource = module.storage.bucket_arn
+      },
+    ]
+  })
+}

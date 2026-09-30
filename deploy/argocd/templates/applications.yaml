@@ -22,6 +22,22 @@ spec:
     repoURL: {{ .Values.repoURL | quote }}
     targetRevision: {{ .Values.targetRevision | quote }}
     path: deploy/charts/dev-infra
+    helm:
+      parameters:
+        - name: tier
+          value: {{ .Values.env | quote }}
+        # Derived from the tier, not configured alongside it. A flag someone
+        # has to remember to set is a flag that will be wrong in the session
+        # that matters, and the wrong value here is silent: the caches are
+        # identical either way, and the only symptom of installing LocalStack
+        # in Tier S is that the real DynamoDB tables stay empty while the
+        # product works perfectly.
+        - name: components.redis
+          value: {{ .Values.devInfraComponents.redis | quote }}
+        - name: components.postgres
+          value: {{ and .Values.devInfraComponents.postgres (ne .Values.env "sandbox") | quote }}
+        - name: components.localstack
+          value: {{ and .Values.devInfraComponents.localstack (ne .Values.env "sandbox") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.namespace }}
@@ -125,6 +141,15 @@ spec:
       valueFiles:
         - ../../envs/{{ $.Values.env }}/values.yaml
         - ../../envs/{{ $.Values.env }}/{{ . }}.yaml
+      {{- with (get $.Values.irsaRoleArns .) }}
+      # A helm parameter, not a committed value, and it has to be: the ARN
+      # contains the account id, so a Tier S value in Git is either a
+      # placeholder that annotates the service account with nonsense or a real
+      # account id in a public repository.
+      parameters:
+        - name: serviceAccount.roleArn
+          value: {{ . | quote }}
+      {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $.Values.namespace }}

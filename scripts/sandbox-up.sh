@@ -119,7 +119,7 @@ if should_run terraform; then
   # -parallelism is raised because the two long poles (EKS control plane ~12
   # min, RDS ~6 min) are independent, and the default of 10 is not the
   # constraint -- the dependency graph is. Raising it costs nothing and lets
-  # the eight DynamoDB tables land while EKS is still coming up.
+  # the nine DynamoDB tables land while EKS is still coming up.
   run "apply" terraform -chdir="${SANDBOX_ROOT}" apply -input=false -auto-approve -parallelism=20 ||
     die "terraform apply failed — run 'make sandbox-down' before retrying, or --from terraform to resume"
   report_budget terraform
@@ -214,11 +214,43 @@ if should_run argocd; then
     db_password="$(terraform -chdir="${SANDBOX_ROOT}" output -raw search_db_password 2>/dev/null || true)"
     [ -n "${db_password}" ] ||
       warn "no search_db_password output -- the search indexer will not reach RDS (gap register row 15)"
+
+    # The endpoints, and why they arrive here rather than in Git.
+    #
+    # `deploy/envs/sandbox/` deliberately omits SEARCH_DB_URL. It is an output
+    # of the apply that just ran, so a committed value would be either a
+    # placeholder or somebody else's account. The override itself is safe --
+    # overlay values render into a ConfigMap and the deployment lists this
+    # Secret after it in envFrom, so the injected value wins -- but an empty
+    # string in Git reads as a deliberate configuration choice, and the next
+    # person has to reconstruct this block to discover it is not one.
+    #
+    # TWEETS_STREAM_ARN is deliberately NOT injected, which looks like an
+    # omission and is not. A stream ARN embeds the table's creation timestamp,
+    # so a value captured here is correct until the first teardown and then
+    # points at a stream that no longer exists -- and the consumer's failure
+    # mode is an empty timeline, not an error. The services discover it from
+    # the table at startup instead. The module's own output says so; see
+    # `infra/terraform/modules/dynamodb/outputs.tf`.
+    db_url="$(terraform -chdir="${SANDBOX_ROOT}" output -raw search_db_jdbc_url 2>/dev/null || true)"
+    [ -n "${db_url}" ] ||
+      warn "no search_db_jdbc_url output -- tweet-indexer will start with no database to index into"
+
+    # The tables are prefixed per session. Tier L has no prefix, so this is
+    # empty in the dev overlay and must not be empty here: an unprefixed name
+    # resolves to a table that does not exist, and the SDK reports
+    # ResourceNotFoundException on the first write rather than at startup.
+    table_prefix="$(terraform -chdir="${SANDBOX_ROOT}" output -raw table_prefix 2>/dev/null || true)"
+    [ -n "${table_prefix}" ] ||
+      warn "no table_prefix output -- every DynamoDB call will name a table that does not exist"
+
     kubectl create namespace starling --dry-run=client -o yaml | kubectl apply -f -
     kubectl create secret generic starling-secrets -n starling \
       --from-literal=AWS_ACCESS_KEY_ID= \
       --from-literal=AWS_SECRET_ACCESS_KEY= \
       --from-literal=SEARCH_DB_PASSWORD="${db_password}" \
+      --from-literal=SEARCH_DB_URL="${db_url}" \
+      --from-literal=DYNAMODB_TABLE_PREFIX="${table_prefix}" \
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null ||
       die "starling-secrets could not be created -- every pod would sit in CreateContainerConfigError"
   else
@@ -235,8 +267,68 @@ if should_run argocd; then
       --set notifications.enabled=false \
       --set applicationSet.enabled=false \
       --wait --timeout 8m || die "ArgoCD install failed"
-    sed "s|REPO_URL_PLACEHOLDER|${REPO_URL}|g" \
+    # ENV_PLACEHOLDER is substituted with `sandbox`, not `dev`, and that
+    # one-word difference is the whole of S78. Applying this file unchanged --
+    # which is what happened until now -- boots `root-dev`, and the dev overlay
+    # points every service at an in-cluster LocalStack and an in-cluster
+    # Postgres. The cluster comes up, ArgoCD reports Synced and Healthy, the
+    # product works, and none of the nine DynamoDB tables or the RDS instance
+    # created twenty minutes earlier is ever touched.
+    # How pods will reach AWS, asked now rather than found out at minute 45.
+    #
+    # This check exists because its answer was `none` for the entire life of the
+    # project and nothing noticed: Tier S ran the Tier L overlay, every AWS call
+    # went to an in-cluster LocalStack, and LocalStack does not check
+    # credentials. Fixing the overlay removed the thing that was hiding it. See
+    # ADR-0014.
+    identity="$(terraform -chdir="${SANDBOX_ROOT}" output -raw pod_aws_identity 2>/dev/null || echo none)"
+    case "${identity}" in
+      irsa)
+        say "  pod AWS identity: IRSA, one role per service"
+        ;;
+      node-role)
+        warn "pod AWS identity: the shared node instance role."
+        warn "  Every pod on the node now holds every application permission,"
+        warn "  including the web frontend, which should hold none."
+        warn "  The overlay must also set networkPolicy.allowImds=true or the"
+        warn "  credentials cannot be fetched. Gap register row 9, made real."
+        ;;
+      *)
+        die "pods have no route to AWS credentials: enable_irsa is false and enable_node_role_fallback is false.
+  Every DynamoDB and S3 call will fail with a credentials error the moment a pod starts.
+  Re-apply with one of them set. Stopping here costs three minutes; finding this at
+  the first demo costs the session."
+        ;;
+    esac
+
+    # One helm parameter per role Terraform created, spliced in where root.yaml
+    # keeps its placeholder comment. Generated rather than committed because the
+    # ARN carries the account id.
+    irsa_params=""
+    if [ "${identity}" = "irsa" ]; then
+      irsa_params="$(terraform -chdir="${SANDBOX_ROOT}" output -json irsa_role_arns 2>/dev/null |
+        jq -r 'to_entries[] | "        - name: irsaRoleArns.\(.key)\n          value: \(.value)"' || true)"
+      [ -n "${irsa_params}" ] ||
+        die "pod_aws_identity says irsa but irsa_role_arns is empty -- the service accounts would be annotated with nothing"
+    fi
+
+    # ENV_PLACEHOLDER is substituted with `sandbox`, not `dev`, and that
+    # one-word difference is the whole of S78. Applying this file unchanged --
+    # which is what happened until now -- boots `root-dev`, and the dev overlay
+    # points every service at an in-cluster LocalStack and an in-cluster
+    # Postgres. The cluster comes up, ArgoCD reports Synced and Healthy, the
+    # product works, and none of the nine DynamoDB tables or the RDS instance
+    # created twenty minutes earlier is ever touched.
+    #
+    # awk rather than sed for the parameter splice: the replacement is
+    # multi-line and contains slashes, and every portable way to make sed do
+    # that is harder to read than this.
+    sed -e "s|REPO_URL_PLACEHOLDER|${REPO_URL}|g" -e "s|ENV_PLACEHOLDER|sandbox|g" \
       "$(dirname "$0")/../deploy/argocd/root.yaml" |
+      awk -v params="${irsa_params}" '
+        /# IRSA_PARAMS_PLACEHOLDER/ { if (params != "") print params; next }
+        { print }
+      ' |
       kubectl apply -f - || die "app-of-apps bootstrap failed"
   fi
   report_budget argocd
