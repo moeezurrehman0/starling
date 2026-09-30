@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/moeezurrehman0/starling/compare/v0.2.5...v0.2.6) (2026-09-30)
+
+
+### Bug fixes
+
+* match buildx's indented Platform lines in the merge gate (S75) ([#34](https://github.com/moeezurrehman0/starling/issues/34)) ([ee23865](https://github.com/moeezurrehman0/starling/commit/ee23865000c2d0e0b3d7c44716c3353083bafa57))
+
 ## [0.2.5](https://github.com/moeezurrehman0/starling/compare/v0.2.4...v0.2.5) (2026-09-30)
 
 
