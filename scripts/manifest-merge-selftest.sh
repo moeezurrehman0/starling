@@ -31,6 +31,21 @@ trap 'rm -rf "${STUB}"' EXIT
 # `inspect` from a platform list chosen by the tag. Recording the create call is
 # what lets the passing case assert that both per-architecture digests actually
 # reached the command, rather than only that the script exited 0.
+#
+# THE OUTPUT BELOW IS COPIED FROM A REAL RUN, NOT WRITTEN FROM MEMORY.
+#
+# The first version of this file was written from memory and got the format
+# wrong: it emitted `Platform:` flush-left, where buildx indents it by six
+# spaces under `Manifests:`. The script's pattern was anchored the same wrong
+# way, so the stub and the code agreed with each other and disagreed with
+# reality. Ten tests passed, both directions, and the gate then rejected six
+# perfectly good manifest lists on its first real run. See S75.
+#
+# It also omits nothing this time. A list built with `provenance: mode=max`
+# carries `unknown/unknown` attestation manifests interleaved with the real
+# ones, and a fixture without them cannot show that the assertion tolerates
+# them. Transcribed from run 36183635154, job "Merge and sign (gateway)".
+install_stub() {
 cat > "${STUB}/docker" <<'STUB'
 #!/usr/bin/env bash
 if [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "create" ]; then
@@ -39,22 +54,31 @@ if [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "create" ]; then
 fi
 if [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "inspect" ]; then
   image="${4:-}"
+  emit_manifest() {
+    echo "  Name:        ${image}@sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    echo "  MediaType:   application/vnd.oci.image.manifest.v1+json"
+    echo "  Platform:    $1"
+    echo ""
+  }
   echo "Name:      ${image}"
   echo "MediaType: application/vnd.oci.image.index.v1+json"
   echo "Digest:    sha256:aaaa000000000000000000000000000000000000000000000000000000000000"
   echo ""
+  echo "Manifests:"
   case "$image" in
     *:amd64-only)
-      echo "Manifests:"
-      echo "Platform:  linux/amd64"
+      emit_manifest linux/amd64
+      emit_manifest unknown/unknown
       ;;
     *:no-platforms)
-      echo "Manifests:"
       ;;
     *)
-      echo "Manifests:"
-      echo "Platform:  linux/amd64"
-      echo "Platform:  linux/arm64"
+      # The real interleaving: each architecture is followed by its
+      # attestation manifest, which reports unknown/unknown.
+      emit_manifest linux/amd64
+      emit_manifest unknown/unknown
+      emit_manifest linux/arm64
+      emit_manifest unknown/unknown
       ;;
   esac
   exit 0
@@ -63,6 +87,8 @@ echo "stub: unexpected docker invocation: $*" >&2
 exit 127
 STUB
 chmod +x "${STUB}/docker"
+}
+install_stub
 export PATH="${STUB}:${PATH}"
 export STUB_CREATE_LOG="${STUB}/create.log"
 export INSPECT_DELAY=0
@@ -116,6 +142,55 @@ fi
 
 check "the list digest is reported for signing" 0 "list digest: sha256:aaaa" \
   sha-abc amd64="$AMD" arm64="$ARM"
+
+# The regression test for S75, pinned against bytes rather than a description.
+# The gate's first real run rejected six good manifest lists because the
+# pattern was anchored flush-left and buildx indents `Platform:`. A stub can
+# drift back to agreeing with a wrong pattern; a verbatim transcript cannot.
+cat > "${STUB}/docker" <<'REAL'
+#!/usr/bin/env bash
+if [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "create" ]; then exit 0; fi
+cat <<'OUT'
+Name:      ghcr.io/moeezurrehman0/starling/gateway:sha-a4dc66d
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:e58f13c747b8bba72819d4b54e8004773b7370335c075b0bc234e18156e4cba1
+
+Manifests: 
+  Name:        ghcr.io/moeezurrehman0/starling/gateway:sha-a4dc66d@sha256:91a06545
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/amd64
+
+  Name:        ghcr.io/moeezurrehman0/starling/gateway:sha-a4dc66d@sha256:71d93a7f
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    vnd.docker.reference.digest: sha256:91a06545
+    vnd.docker.reference.type:   attestation-manifest
+
+  Name:        ghcr.io/moeezurrehman0/starling/gateway:sha-a4dc66d@sha256:fa846077
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/arm64
+OUT
+REAL
+chmod +x "${STUB}/docker"
+
+rc=0
+dir=$(mktemp -d "${STUB}/digests.XXXXXX")
+printf '%s' "$AMD" > "${dir}/amd64"; printf '%s' "$ARM" > "${dir}/arm64"
+out=$(IMAGE="$IMAGE" TAG=sha-a4dc66d DIGEST_DIR="$dir" \
+  ./scripts/manifest-merge.sh 2>&1) || rc=$?
+if [ "$rc" -eq 0 ]; then
+  printf 'ok    %s\n' "verbatim buildx output from run 36183635154 is accepted"
+  pass=$((pass + 1))
+else
+  printf 'FAIL  %s: exit %s -- the pattern disagrees with real buildx output again\n%s\n' \
+    "verbatim buildx output from run 36183635154 is accepted" \
+    "$rc" "$(sed 's/^/        /' <<<"$out")"
+  fail=$((fail + 1))
+fi
+
+# Restore the parameterised stub for the remaining cases.
+install_stub
 
 echo "-- failing direction (the point of this file) --"
 

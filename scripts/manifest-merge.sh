@@ -96,12 +96,24 @@ esac
 # The assertion S69 said was missing. `imagetools inspect` prints one
 # `Platform:` line per manifest in the list, so this reads the list as a
 # consumer would rather than trusting what we asked for.
+#
+# The leading `[[:space:]]*` is not defensive padding -- it is the fix for the
+# first real run of this gate, which rejected six perfectly good manifest
+# lists. buildx indents `Platform:` by six spaces under `Manifests:`; the
+# original pattern anchored it at the start of the line, so it matched nothing
+# and every publish failed closed. See S75, and note that the fixture in the
+# self-test is now copied from real output rather than written from memory.
+#
+# Only presence is checked, never absence. A list built with `provenance:
+# mode=max` also carries `unknown/unknown` attestation manifests, and those are
+# supposed to be there.
 inspected="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" 2>&1)" ||
   die "could not inspect ${IMAGE}:${TAG} for its platform set"
 
 missing=""
 for want in ${EXPECTED_PLATFORMS}; do
-  grep -qE "^Platform:[[:space:]]+${want}\$" <<<"$inspected" || missing="${missing} ${want}"
+  grep -qE "^[[:space:]]*Platform:[[:space:]]+${want}[[:space:]]*\$" <<<"$inspected" ||
+    missing="${missing} ${want}"
 done
 
 if [ -n "$missing" ]; then
