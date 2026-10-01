@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/moeezurrehman0/starling/compare/v0.3.1...v0.3.2) (2026-10-01)
+
+
+### Bug fixes
+
+* make the direct local install work on a clean machine ([#51](https://github.com/moeezurrehman0/starling/issues/51)) ([9034966](https://github.com/moeezurrehman0/starling/commit/90349669c2d1efa507852bbf732df2ab9bcb3c63))
+* stop --dry-run starting the session clock ([#48](https://github.com/moeezurrehman0/starling/issues/48)) ([bac89aa](https://github.com/moeezurrehman0/starling/commit/bac89aa434b08d599a3e1e0e7ab092cd5edbe8df))
+
 ## [0.3.1](https://github.com/moeezurrehman0/starling/compare/v0.3.0...v0.3.1) (2026-09-30)
 
 
