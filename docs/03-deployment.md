@@ -128,11 +128,29 @@ full of orphans.
 
 ## 5. Tier L
 
+There are two ways to get the product onto the local cluster, and they are
+**alternatives, not steps**. Pick one.
+
 ```
-make kind-up      # 3-node cluster, Calico, ArgoCD
-make kind-deploy  # build, load, helm install
+make kind-up      # 3-node cluster, Calico, ArgoCD, and -- if the clone has an
+                  # origin remote -- the app-of-apps. That last part is the
+                  # whole deployment: ArgoCD syncs the charts itself.
 make kind-down
 ```
+
+```
+REPO_URL='' make kind-up   # same cluster, no app-of-apps
+make kind-deploy           # build, load, helm install -- directly
+make kind-down
+```
+
+Running `make kind-deploy` against a cluster where ArgoCD already owns the namespace
+does not produce a merged result. Helm refuses to adopt objects it did not create, and
+the error it prints names a missing `app.kubernetes.io/managed-by` label rather than the
+actual cause; even `--take-ownership` would lose, because the Applications have
+`selfHeal: true` and would revert it. So `kind-deploy` checks first and refuses, naming
+ArgoCD and printing both remedies. The two paths install the same charts with the same
+values files, and neither is a degraded version of the other.
 
 Three nodes, because Tier S has three. A single-node cluster satisfies topology spread
 trivially, never blocks on a PDB, and schedules pods that could not be scheduled anywhere —

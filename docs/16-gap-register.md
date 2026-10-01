@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S80`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S81`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S80`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S81`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -1944,6 +1944,72 @@ stderr and was counted as neither a pass nor a failure. The suite reported
 evaporated. It was caught only by counting: six were added, five appeared.
 Assertion helpers that vanish quietly are the S-class hazard living inside the
 S-class detector, and the arithmetic is the only thing that sees it.
+
+**S81. The documented local path had never been run on a clean machine.**
+Found by deleting the rehearsal cluster and following `docs/03-deployment.md`
+literally. Three separate defects were waiting in the first two commands, and
+all three are the same blindness: the only cluster anyone used was long-lived.
+
+`scripts/kind-up.sh` line 124 is literally `# --- GitOps or direct ---`, and
+it bootstraps the app-of-apps whenever `git remote get-url origin` returns
+anything — which is every normal clone. The documentation presented `kind-up`
+then `kind-deploy` as **step 1, step 2**. They are alternatives. Run as a
+sequence on a fresh cluster, the second fails:
+
+> Service "localstack" in namespace "starling" exists and cannot be imported
+> into the current release: invalid ownership metadata; missing key
+> "app.kubernetes.io/managed-by"
+
+which names a labelling problem and not the cause. Helm will not adopt objects
+ArgoCD created, and `--take-ownership` would lose anyway, because `dev-infra-dev`
+has `selfHeal: true` and would revert it within the minute.
+
+Clearing that revealed the second: `kind-deploy` created the
+`observability-agents` namespace imperatively *and* the observability chart
+declares it — S73 moved the declaration into the chart, correctly, and left
+the imperative copy behind. Two creators of one object is not redundancy when
+one of them is Helm; the install failed with the same ownership error, now
+about a namespace.
+
+Clearing *that* revealed the third: the rollout wait loop ran
+`kubectl rollout status deploy/$svc` over every service, but canary renders
+`gateway` as an Argo Rollout. `kubectl rollout status` understands only the
+three built-in workload kinds, so a Rollout that was **Healthy, 1/1** was
+reported as `deployments.apps "gateway" not found` and the script died. The
+deploy had entirely succeeded.
+
+Each defect is individually trivial. What makes them a class is why all three
+survived: the rehearsal cluster already had Helm releases from before the
+bootstrap existed, so `helm upgrade --install` took the upgrade path every
+time, and the one failing wait had never been reached because the install
+died earlier. A fresh cluster is the only way to see any of it, and **CI
+creates no kind cluster at all** — grepping `.github/workflows/` for
+`kind-up|kind-deploy|kind create` returns nothing. The same fresh-versus-
+long-lived gap as S70.
+
+Not a Tier-S blocker: `sandbox-up.sh` never calls `kind-deploy`. It is a
+new-contributor blocker sitting in the first two commands of the documented
+happy path, which is arguably worse, because the people who hit it are the
+people least able to tell a broken repository from their own mistake.
+
+*Fix:* `kind-deploy` now checks for ArgoCD Applications targeting its
+namespace and refuses, naming ArgoCD and printing both remedies, rather than
+letting Helm produce an error about the wrong thing. The duplicate namespace
+creation is deleted — the chart owns it, which is what S73 moved it there
+for. The wait loop asks what each object actually is instead of assuming.
+`docs/03-deployment.md` now presents the two paths as alternatives and
+documents `REPO_URL=''`, the previously undocumented lever for a cluster that
+never bootstraps GitOps.
+
+*Control:* **a live run, not a CI gate — this one is not mechanised, and that
+should be read as a gap rather than a decision.** There is no kind self-test
+harness and CI builds no cluster, so the only thing standing behind this entry
+is that all three were reproduced and then re-run to green on a real
+three-node cluster: the guard proven in both directions (it refuses while
+ArgoCD owns the namespace; the remedy it prints works; `kind-deploy` then
+completes), all seven services rolled out, and the Rollout waited on
+correctly. Mechanising it needs a job that creates a cluster, which is a
+real cost and has not been paid.
 
 ## Maintenance
 
