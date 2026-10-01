@@ -154,7 +154,7 @@ eventually-consistent-by-accident — the mismatch window is handled explicitly 
 
 ## Silent-failure classes found while building
 
-**These are numbered `S1`–`S81`, in their own namespace.** They are not rows of the register
+**These are numbered `S1`–`S82`, in their own namespace.** They are not rows of the register
 above — that table is numbered `1`–`27` and answers "what does the sandbox force". This
 section answers a different question: "what was broken while every gate said it was fine".
 The two schemes overlapped for most of this project's life, both referred to as "gap row
@@ -622,7 +622,7 @@ identically**, as "gap row N". Two citations were resolving to the wrong entry a
 `deployment.yaml` sent a reader to row 32 for the `setWeight`-as-replica-count
 approximation, and `load/ramp.js` to row 33 for the emulator load ceiling — both are S38.
 A comment that misdirects is worse than no comment, because it spends the reader's trust
-first. *Control:* the classes are namespaced `S1`–`S81`, the ambiguous `gap row N` form is
+first. *Control:* the classes are namespaced `S1`–`S82`, the ambiguous `gap row N` form is
 banned outright, and `scripts/gap-verify.sh` resolves every citation, artefact path and ADR
 link in the repository against this file on every CI run — unfiltered, because a dead
 citation can be written into any directory. It was mutation-tested on six defects and caught
@@ -2010,6 +2010,66 @@ ArgoCD owns the namespace; the remedy it prints works; `kind-deploy` then
 completes), all seven services rolled out, and the Rollout waited on
 correctly. Mechanising it needs a job that creates a cluster, which is a
 real cost and has not been paid.
+
+**S82. The same control was too strict to use and too weak to count.** Found
+while proving S81: `make kind-deploy` ends by printing `web:
+http://localhost:8088`, and that URL has never worked with Calico enforcing.
+
+The evidence, because "it doesn't load" is not a diagnosis: the identical
+request returns **HTTP 200 over `kubectl port-forward`**, which bypasses CNI
+policy, and **times out over the NodePort**, which does not. That isolates the
+NetworkPolicy as the cause and rules out the app, the Service and the port
+mapping.
+
+The `web` policy's only ingress rules were the in-namespace `allowFrom` list
+and a scrape rule for the `observability` namespace. Neither can express
+"from outside the cluster", and the chart offered no field that could —
+`allowFrom` takes pod names. So every service with an `Ingress` was
+unreachable from a browser wherever the policy was enforced. The symptom is a
+timeout, not a refusal, which reads as a slow start rather than a dropped
+packet.
+
+Then the second half, which is worse. That gap should break Tier S too: the
+ALB uses `target-type: ip` and talks straight to pod addresses. It does not —
+because nothing in `infra/terraform/` ever enables policy enforcement. The
+addon is declared as a bare `vpc-cni = {}` in both `envs/sandbox` and
+`envs/prod`, and the AWS VPC CNI ships with NetworkPolicy support **off**. The
+objects apply, `kubectl get networkpolicy` lists them, `kubectl describe`
+shows the rules, and every packet flows.
+
+This chart's own header comment calls that "the most dangerous possible
+outcome for a security control". It was true of two tiers out of three. The
+same control was strict enough to break the local URL and absent enough to
+protect nothing in the cloud, and the two halves hid each other: the breakage
+only showed where enforcement was real, and the enforcement gap only mattered
+where nothing was testing it.
+
+*Fix, for the first half:* the ingress rule is **derived from
+`ingress.enabled`** rather than added as a second knob. A service published
+through an Ingress has already declared it is reachable from outside;
+requiring that to be restated in a separate field is how two fields drift
+apart. The default is `0.0.0.0/0` on the http port, which is what "published"
+means — the ALB arrives from an ENI, and a NodePort arrives SNATed to a node
+address on a docker network whose range differs per machine, so no narrower
+constant is both correct and portable. It stays bounded where it matters:
+that one port, and the egress half of the policy — the half that actually
+contains a breach — is untouched. `networkPolicy.allowFromCidrs` narrows it
+where a source range is known and stable.
+
+*Not fixed:* enforcement in Tier S and P. Enabling it is a one-field change to
+the `vpc-cni` addon, deliberately **not** made before a 180-minute session
+that cannot be repeated: it would turn every policy in this repository live
+for the first time, on the one run where the end-to-end demo has to work.
+That is a decision to defer, taken knowingly, and it is recorded here rather
+than in a commit nobody reads. **Until it is made, every NetworkPolicy in
+Tier S and Tier P is documentation.** Any claim this project makes about
+network segmentation holds for Tier L alone.
+
+*Control:* the published rule is proven two-sided by rendering — `web` gets
+the `ipBlock` rule, `tweet-service` gets none — and end-to-end on a live
+three-node Calico cluster: the printed URL returned `000` before the change
+and `200` after, with nothing else altered. The non-enforcement half has no
+control, which is the point of the row.
 
 ## Maintenance
 

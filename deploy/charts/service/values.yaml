@@ -165,6 +165,12 @@ networkPolicy:
   enabled: true
   # Names of workloads in this namespace permitted to call us.
   allowFrom: []
+  # Source CIDRs permitted to call us, for traffic that originates outside the
+  # cluster and therefore has no podSelector to match. Leave empty and the
+  # policy derives the rule from `ingress.enabled`, defaulting to 0.0.0.0/0 on
+  # the http port -- see the template. Set it where the source range is known
+  # and stable: the VPC CIDR, or a load balancer's subnets.
+  allowFromCidrs: []
   # Names of workloads in this namespace we are permitted to call.
   allowTo: []
   # Allow egress to the AWS APIs and to anything outside the cluster. Every
