@@ -32,6 +32,41 @@ need docker
 kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || die "cluster '$CLUSTER' not found — run: make kind-up"
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
+# --- GitOps or direct, not both ---------------------------------------------
+#
+# `kind-up` bootstraps the app-of-apps whenever a git remote exists, which is
+# every normal clone. ArgoCD then owns the namespace with prune and selfHeal
+# on, and the objects it creates carry no Helm ownership metadata. The install
+# below therefore fails with
+#
+#   invalid ownership metadata; missing key "app.kubernetes.io/managed-by"
+#
+# which names a Helm labelling problem and not the actual cause. Even if Helm
+# were made to adopt them, selfHeal would take them straight back.
+#
+# This never showed up because a long-lived cluster already had the Helm
+# releases from before the bootstrap existed, so `helm upgrade --install` took
+# the upgrade path. A fresh cluster is the only way to see it, and CI creates
+# no kind cluster at all. Same blindness as S70. Class S81.
+if kubectl get crd applications.argoproj.io >/dev/null 2>&1; then
+  OWNED="$(kubectl get applications.argoproj.io -n argocd \
+    -o jsonpath="{range .items[?(@.spec.destination.namespace=='${NS}')]}{.metadata.name}{' '}{end}" \
+    2>/dev/null || true)"
+  if [ -n "${OWNED// /}" ]; then
+    printf '\033[1;31mxx\033[0m  ArgoCD already owns namespace %s.\n' "$NS" >&2
+    printf '    Applications: %s\n' "$OWNED" >&2
+    printf '\n    These are two install paths for the same charts, not two steps.\n' >&2
+    printf '    Helm cannot adopt objects ArgoCD created, and selfHeal would\n' >&2
+    printf '    revert them if it could.\n\n' >&2
+    printf '    To use this direct path instead, hand the namespace back:\n' >&2
+    printf '      kubectl delete app -n argocd root-dev --cascade=foreground\n' >&2
+    printf '      make kind-deploy\n\n' >&2
+    printf '    Or start a cluster that never bootstraps GitOps:\n' >&2
+    printf '      make kind-down && REPO_URL= make kind-up && make kind-deploy\n' >&2
+    exit 1
+  fi
+fi
+
 # --- build ------------------------------------------------------------------
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -116,11 +151,15 @@ kubectl label ns observability --overwrite \
 # to mount /var/log/pods from the node, which `baseline` already forbids; the
 # alternative to this namespace is relaxing the profile for Grafana too, and
 # Grafana is the most exposed process in the stack. See promtail.yaml.
-kubectl get ns observability-agents >/dev/null 2>&1 || kubectl create ns observability-agents
-kubectl label ns observability-agents --overwrite \
-  pod-security.kubernetes.io/enforce=privileged \
-  pod-security.kubernetes.io/audit=privileged \
-  pod-security.kubernetes.io/warn=privileged >/dev/null
+#
+# The namespace and its labels are declared by the observability chart itself,
+# which is what S73 moved them there for -- both install paths read the chart,
+# so neither has to remember. Creating it here as well is not harmless
+# duplication: Helm refuses to adopt an object it did not create, so on a fresh
+# cluster the imperative version made `helm install observability` fail with an
+# ownership error naming a missing label. S73 moved the declaration and left
+# this copy behind; a long-lived cluster hid it, because Helm already owned the
+# namespace and took the upgrade path. Class S81.
 
 # The Secret the charts reference by name. Nothing else creates it, and a missing
 # Secret named in `envFrom` does not fail the Deployment -- the pod is scheduled,
@@ -254,7 +293,17 @@ kubectl patch svc web -n "$NS" --type merge -p \
 log "waiting for rollouts"
 fail=0
 for svc in "${SERVICES[@]}" tweet-indexer; do
-  kubectl rollout status deploy/"$svc" -n "$NS" --timeout=300s || fail=1
+  # Canary turns a service into an Argo Rollout, which is a CRD. `kubectl
+  # rollout status` only understands the three built-in workload kinds, so it
+  # reports a perfectly healthy Rollout as `deployments.apps "x" not found` --
+  # a message that reads like the install failed when it succeeded. Ask what
+  # the object actually is rather than assuming. Class S81.
+  if kubectl get rollout.argoproj.io "$svc" -n "$NS" >/dev/null 2>&1; then
+    kubectl wait --for=jsonpath='{.status.phase}'=Healthy \
+      rollout.argoproj.io/"$svc" -n "$NS" --timeout=300s || fail=1
+  else
+    kubectl rollout status deploy/"$svc" -n "$NS" --timeout=300s || fail=1
+  fi
 done
 
 if [ "$fail" -ne 0 ]; then
