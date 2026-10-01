@@ -31,6 +31,36 @@ spec:
         - port: http
           protocol: TCP
     {{- end }}
+    {{- if or .Values.ingress.enabled .Values.networkPolicy.allowFromCidrs }}
+    # Published services need a rule for traffic that originates outside the
+    # cluster, and nothing above provides one: allowFrom takes pod names, and
+    # the scrape rule below takes a namespace. Without this, a service with an
+    # Ingress is unreachable from a browser wherever the policy is actually
+    # enforced -- which is Tier L, where `make kind-deploy` printed a URL that
+    # timed out. The symptom is a timeout rather than a refusal, so it reads as
+    # the app being slow to start rather than as a dropped packet.
+    #
+    # Derived from ingress.enabled rather than configured separately. A service
+    # published through an Ingress has already declared that it is reachable
+    # from outside; making someone restate it in a second field is how the two
+    # drift apart.
+    #
+    # The default is 0.0.0.0/0, which is what "published" means -- the ALB in
+    # Tier S talks to the pod IP from an ENI, and a NodePort in Tier L arrives
+    # SNATed to a node address on a docker network whose range differs per
+    # machine, so no narrower constant is both correct and portable. It stays
+    # bounded in the ways that matter: this port only, and the egress half of
+    # the policy -- the half that contains a breach -- is untouched. Set
+    # allowFromCidrs to narrow it where the source range is known and stable.
+    - from:
+        {{- range .Values.networkPolicy.allowFromCidrs | default (list "0.0.0.0/0") }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- end }}
     # Scraping must be allowed explicitly or the metrics simply stop, silently,
     # and the first symptom is an empty dashboard during an incident.
     - from:
