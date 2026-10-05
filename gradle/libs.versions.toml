@@ -9,7 +9,7 @@ tomcat = "11.0.26"
 # CVE-2026-68497 -- a HIGH, unbounded numeric parsing, CPU denial of service,
 # fixed in 3.1.6. Held on the 3.1 line rather than jumping to 3.2 so the only
 # thing that changes is the fix.
-jackson = "3.1.7"
+jackson = "3.2.3"
 jspecify = "1.0.1"
 testcontainers = "2.0.5"
 checkstyle = "14.1.0"
