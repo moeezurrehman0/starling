@@ -413,7 +413,7 @@ jobs:
           fi
 
       - if: steps.key.outputs.present == 'true'
-        uses: infracost/actions/setup@v4
+        uses: infracost/actions/setup@v5
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
